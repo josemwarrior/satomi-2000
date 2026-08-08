@@ -195,33 +195,42 @@ npm run build
 npm run check
 ```
 
-## Make `satomi-2000` available from any directory (macOS and zsh)
+### Make the command available permanently (macOS and zsh)
 
-First, open the Satomi-2000 project directory and run `pwd` to get its absolute
-path. Then add the following line to `~/.zshrc`, replacing the example path with
-that absolute path:
+Running `export` directly in a terminal only affects that terminal session. The
+setting disappears when the terminal is closed. To keep it permanently, first
+run `pwd` from the Satomi-2000 project directory to find its absolute path.
+
+Then open the zsh configuration file:
+
+```bash
+nano ~/.zshrc
+```
+
+Add these lines, replacing `/absolute/path/to/satomi` with the project directory:
 
 ```bash
 export PATH="/absolute/path/to/satomi:$PATH"
-```
-
-Reload the shell configuration and verify the command:
-
-```bash
-source ~/.zshrc
-satomi-2000 --help
-```
-
-Adding the executable to `PATH` does not change where Satomi looks for its
-configuration. To run it from any directory without passing `--config` each
-time, also add this line to `~/.zshrc`:
-
-```bash
 export SATOMI_CONFIG="/absolute/path/to/satomi/satomi.config.yml"
 ```
 
-Relative image paths are still resolved from the terminal's current directory;
-use an absolute image path when publishing from elsewhere.
+Save the file and reload the shell configuration:
+
+```bash
+source ~/.zshrc
+```
+
+Verify both settings:
+
+```bash
+command -v satomi-2000
+echo "$SATOMI_CONFIG"
+satomi-2000 --help
+```
+
+The executable and configuration will now be available in new terminal
+sessions. Relative image paths are still resolved from the terminal's current
+directory, so use an absolute image path when publishing from elsewhere.
 
 ## License
 
