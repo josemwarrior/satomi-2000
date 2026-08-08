@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_PATH=$0
+while [ -h "$SCRIPT_PATH" ]; do
+  SCRIPT_DIR=$(CDPATH= cd -P -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
+  LINK_TARGET=$(readlink "$SCRIPT_PATH")
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH=$LINK_TARGET ;;
+    *) SCRIPT_PATH=$SCRIPT_DIR/$LINK_TARGET ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -P -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
+
+if [ -f "$SCRIPT_DIR/dist/cli.js" ]; then
+  exec node "$SCRIPT_DIR/dist/cli.js" "$@"
+fi
+
+exec npm --prefix "$SCRIPT_DIR" run --silent dev -- "$@"

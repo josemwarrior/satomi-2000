@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+
+# Private local configuration, credentials, locks, and publication state
+satomi.config.yml
+.env
+.env.*
+!.env.example
+.satomi/
+MICROBLOG_PIPELINE_SPEC.md
+
+# Editors and macOS
+.DS_Store
+*.swp

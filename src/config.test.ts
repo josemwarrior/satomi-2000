@@ -1,0 +1,45 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import YAML from "yaml";
+import { afterEach, describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG_FILE, loadConfig } from "./config.js";
+
+const temporaryPaths: string[] = [];
+afterEach(async () => {
+  await Promise.all(temporaryPaths.splice(0).map((item) => rm(item, { recursive: true, force: true })));
+});
+
+describe("private configuration", () => {
+  it("uses satomi.config.yml as the CLI default filename", () => {
+    expect(DEFAULT_CONFIG_FILE).toBe("satomi.config.yml");
+  });
+
+  it("resolves an external Jekyll repository relative to the config file", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "satomi-config-"));
+    temporaryPaths.push(root);
+    const repository = path.join(root, "external-blog");
+    await mkdir(repository);
+    const example = YAML.parse(
+      await readFile(path.resolve("satomi.config.example.yml"), "utf8"),
+    ) as Record<string, Record<string, unknown>>;
+    if (!example.site) throw new Error("Invalid test fixture");
+    example.site.repository_path = "external-blog";
+    const configPath = path.join(root, "satomi.config.yml");
+    await writeFile(configPath, YAML.stringify(example), { mode: 0o600 });
+
+    const config = await loadConfig(configPath);
+    expect(config.repositoryPath).toBe(repository);
+    expect(config.site.posts_directory).toBe("_posts");
+    expect(config.site.media_directory).toBe("assets/microblog/media");
+    expect(config.site.public_url).toBe("https://example.github.io/microblog");
+    expect(config.statePath).toBe(path.join(root, ".satomi/state.json"));
+    expect(config.destinations).toEqual({
+      jekyll: true,
+      org_social: true,
+      mastodon: true,
+      bluesky: true,
+      x: true,
+    });
+  });
+});

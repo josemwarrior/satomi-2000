@@ -1,0 +1,113 @@
+version: 1
+
+site:
+  # The public base URL. Use the site root or any subpath; do not add a trailing slash.
+  public_url: https://example.github.io/microblog
+
+  # Public URL corresponding to media_directory; do not add a trailing slash.
+  media_url: https://example.github.io/assets/microblog/media
+
+  # May be absolute, or relative to this configuration file.
+  repository_path: ../example.github.io
+
+  # All paths below are relative to repository_path. Satomi does not require a
+  # custom collection: use _posts, _microblog, or any Jekyll source directory.
+  posts_directory: _posts
+  media_directory: assets/microblog/media
+
+  # feed.xml, feed.json, and (when checked) social.org are written here.
+  # Use "." when public_url is the root, or a matching subdirectory otherwise.
+  public_files_directory: microblog
+  syndication_data_file: _data/microblog-syndication.json
+  branch: main
+
+# This is the publishing checklist: true = [x], false = [ ].
+# Jekyll is required because it is the canonical post.
+destinations:
+  jekyll: true
+  org_social: true
+  mastodon: true
+  bluesky: true
+  x: true
+
+content:
+  language: en
+  timezone: Europe/Madrid
+  title: Game development log
+  nick: GameName
+  description: Development notes from an independent game
+  avatar_url: https://example.github.io/assets/microblog/avatar.png
+  default_tags: []
+
+validation:
+  require_matching_image_extension: true
+  require_animated_gif: true
+  reject_empty_text: true
+  reject_control_characters: true
+
+jekyll:
+  build_command:
+    - bundle
+    - exec
+    - jekyll
+    - build
+  output_directory: _site
+
+platforms:
+  mastodon:
+    max_characters: 500
+    max_gif_mb: 16
+    # Shared limit for PNG, JPEG, and WebP.
+    max_png_mb: 16
+    append_canonical_url: true
+    include_tags: true
+    upload_native_media: true
+    check_instance_limits: true
+
+  bluesky:
+    max_characters: 300
+    max_gif_mb: 50
+    # Shared limit for PNG, JPEG, and WebP.
+    max_png_mb: 2
+    append_canonical_url: true
+    include_tags: true
+    upload_native_media: true
+    convert_gif_to_mp4: true
+    video_timeout_seconds: 300
+
+  x:
+    username: your_username
+    max_characters: 280
+    max_gif_mb: 15
+    # Shared limit for PNG, JPEG, and WebP.
+    max_png_mb: 5
+    append_canonical_url: false
+    include_tags: true
+    upload_native_media: true
+    max_posts_per_run: 1
+    max_posts_per_day: 2
+    max_estimated_cost_usd_per_run: 0.25
+    estimated_cost_without_url_usd: 0.015
+    estimated_cost_with_url_usd: 0.20
+    automatic_retry: false
+
+git:
+  commit_message_template: "microblog: {slug}"
+  push: true
+  stage_only_generated_files: true
+
+deployment:
+  wait_for_public_url: true
+  timeout_seconds: 180
+  poll_interval_seconds: 5
+
+state:
+  # These paths are relative to this configuration file, not the Jekyll repo.
+  file: .satomi/state.json
+  lock_directory: .satomi/publish.lock
+  publish_syndication_data: false
+
+credentials:
+  provider: env_and_keychain
+  env_file: .env
+  keychain_service_prefix: satomi

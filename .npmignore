@@ -1,0 +1,6 @@
+src/
+tests/
+satomi.config.yml
+.env
+.satomi/
+MICROBLOG_PIPELINE_SPEC.md
