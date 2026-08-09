@@ -9,6 +9,12 @@ import { pathExists, safeRelativePath } from "./utils.js";
 export const DEFAULT_CONFIG_FILE = "satomi.config.yml";
 
 const relativePath = z.string().min(1);
+const languageCode = z
+  .string()
+  .regex(
+    /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/,
+    "must be a language code such as en, es, or pt-BR",
+  );
 
 const basePlatformSchema = z.object({
   max_characters: z.number().int().positive(),
@@ -48,14 +54,31 @@ export const configSchema = z
       })
       .strict(),
     content: z.object({
-      language: z.string().min(2).default("en"),
+      language: languageCode.default("en"),
       timezone: z.string().min(1).default("UTC"),
       title: z.string().min(1),
-      nick: z.string().min(1),
       description: z.string().min(1),
-      avatar_url: z.url(),
       default_tags: z.array(z.string().min(1)).default([]),
     }),
+    org_social: z
+      .object({
+        title: z.string().min(1),
+        nick: z.string().min(1).regex(/^\S+$/, "must not contain spaces"),
+        description: z.string().min(1),
+        avatar_url: z.url(),
+        links: z.array(z.url()).default([]),
+        languages: z.array(languageCode).min(1),
+        default_language: languageCode,
+      })
+      .superRefine((value, context) => {
+        if (!value.languages.includes(value.default_language)) {
+          context.addIssue({
+            code: "custom",
+            path: ["default_language"],
+            message: "must also appear in org_social.languages",
+          });
+        }
+      }),
     validation: z.object({
       require_matching_image_extension: z.boolean().default(true),
       require_animated_gif: z.boolean().default(true),

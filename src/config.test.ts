@@ -41,5 +41,14 @@ describe("private configuration", () => {
       bluesky: true,
       x: true,
     });
+    expect(config.org_social).toEqual({
+      title: "GameName on Org Social",
+      nick: "GameName",
+      description: "Development notes from an independent game",
+      avatar_url: "https://example.github.io/assets/microblog/avatar.png",
+      links: ["https://example.github.io/microblog/"],
+      languages: ["en"],
+      default_language: "en",
+    });
   });
 });

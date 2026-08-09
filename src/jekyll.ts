@@ -47,6 +47,12 @@ async function readEntries(repository: string, config: ResolvedConfig): Promise<
         date: normalizeDate(source.data.date),
         tags: Array.isArray(source.data.tags) ? source.data.tags.map(String) : [],
         language: String(source.data.lang ?? source.data.language ?? config.content.language),
+        orgSocialLanguage: String(
+          syndicate.org_social_language ??
+            source.data.lang ??
+            source.data.language ??
+            config.org_social.default_language,
+        ),
         text: source.content.trim(),
         orgSocial: syndicate.org_social !== false,
       };

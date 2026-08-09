@@ -31,13 +31,26 @@ destinations:
   x: true
 
 content:
+  # Defaults for the canonical Jekyll entry, RSS, JSON Feed, and social platforms.
   language: en
   timezone: Europe/Madrid
   title: Game development log
+  description: Development notes from an independent game
+  default_tags: []
+
+# Identity and language settings used only to generate social.org.
+org_social:
+  title: GameName on Org Social
   nick: GameName
   description: Development notes from an independent game
   avatar_url: https://example.github.io/assets/microblog/avatar.png
-  default_tags: []
+  links:
+    - https://example.github.io/microblog/
+  # All languages advertised by the Org Social profile.
+  languages:
+    - en
+  # Used for :LANG: on new Org Social posts and must appear above.
+  default_language: en
 
 validation:
   require_matching_image_extension: true

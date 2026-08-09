@@ -43,10 +43,17 @@ describe("Jekyll staging", () => {
       },
       content: {
         title: "Devlog",
-        nick: "Game",
         description: "Updates",
-        avatar_url: "https://example.com/avatar.png",
         language: "en",
+      },
+      org_social: {
+        title: "Game on Org Social",
+        nick: "Game",
+        description: "Org Social updates",
+        avatar_url: "https://example.com/avatar.png",
+        links: ["https://example.com/microblog/"],
+        languages: ["es", "en"],
+        default_language: "es",
       },
       destinations: {
         jekyll: true,
@@ -95,6 +102,9 @@ describe("Jekyll staging", () => {
         "utf8",
       );
       expect(social).toContain("An update.");
+      expect(social).toContain("#+TITLE: Game on Org Social");
+      expect(social).toContain("#+LANGUAGE: es en");
+      expect(social).toContain(":LANG: es");
       expect(social).not.toContain("This is not a Satomi post.");
       expect(await readFile(path.join(staged.repository, "_config.yml"), "utf8")).toBe(
         "title: Test\n",
@@ -127,6 +137,15 @@ describe("Jekyll staging", () => {
           "utf8",
         ),
       ).toContain("org_social: false");
+      expect(
+        await readFile(
+          path.join(
+            stagedWithoutOrgSocial.repository,
+            "_posts/2026-08-08-text-only.md",
+          ),
+          "utf8",
+        ),
+      ).toContain("org_social_language: es");
       expect(
         await readFile(
           path.join(

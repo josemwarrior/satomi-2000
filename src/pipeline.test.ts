@@ -123,12 +123,19 @@ describe("publication history", () => {
       },
       content: {
         title: "Test",
-        nick: "Test",
         description: "Test",
-        avatar_url: "https://example.com/avatar.png",
         language: "en",
         timezone: "UTC",
         default_tags: [],
+      },
+      org_social: {
+        title: "Test on Org Social",
+        nick: "Test",
+        description: "Test",
+        avatar_url: "https://example.com/avatar.png",
+        links: ["https://example.com/microblog/"],
+        languages: ["en"],
+        default_language: "en",
       },
       validation: {
         reject_empty_text: true,

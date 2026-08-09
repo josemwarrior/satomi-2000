@@ -9,10 +9,17 @@ const config = {
   },
   content: {
     title: "Devlog",
-    nick: "Game",
     description: "Game updates",
-    avatar_url: "https://example.com/avatar.png",
     language: "en",
+  },
+  org_social: {
+    title: "Game on Org Social",
+    nick: "Game",
+    description: "Org Social updates",
+    avatar_url: "https://example.com/org-social-avatar.png",
+    links: ["https://example.com/social/", "https://example.com/about"],
+    languages: ["es", "en"],
+    default_language: "es",
   },
   destinations: {
     jekyll: true,
@@ -31,6 +38,7 @@ const entry = {
   alt: "Two slimes & a hero",
   tags: ["indiedev"],
   language: "en",
+  orgSocialLanguage: "es",
   text: "The combat system works.",
   orgSocial: true,
 };
@@ -42,6 +50,7 @@ describe("derived Jekyll artifacts", () => {
     expect(post).toContain("satomi: true");
     expect(post).toContain("permalink: /microblog/2026-08-08-test/");
     expect(post).toContain("org_social: true");
+    expect(post).toContain("org_social_language: es");
     expect(post).toContain("The combat system works.");
   });
 
@@ -57,6 +66,10 @@ describe("derived Jekyll artifacts", () => {
 
   it("renders Org Social, RSS, and JSON Feed", () => {
     expect(renderSocialOrg([entry], config)).toContain("#+NICK: Game");
+    expect(renderSocialOrg([entry], config)).toContain("#+TITLE: Game on Org Social");
+    expect(renderSocialOrg([entry], config)).toContain("#+LANGUAGE: es en");
+    expect(renderSocialOrg([entry], config)).toContain("#+LINK: https://example.com/about");
+    expect(renderSocialOrg([entry], config)).toContain(":LANG: es");
     expect(renderRss([entry], config)).toContain("A test &amp; update");
     const feed = JSON.parse(renderJsonFeed([entry], config)) as { items: unknown[] };
     expect(feed.items).toHaveLength(1);

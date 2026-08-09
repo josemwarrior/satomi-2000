@@ -75,6 +75,30 @@ site:
   public_files_directory: microblog
 ```
 
+Org Social has its own profile metadata and language settings. These values do
+not come from the Jekyll/RSS `content` metadata:
+
+```yaml
+org_social:
+  title: My Org Social journal
+  nick: MyNick
+  description: Notes published on Org Social
+  avatar_url: https://example.com/avatar.png
+  links:
+    - https://example.com/microblog/
+    - https://example.com/about/
+  languages:
+    - es
+    - en
+  default_language: es
+```
+
+`languages` produces the global `#+LANGUAGE` declaration. `default_language`
+must be one of those values and is stored as `syndicate.org_social_language` in
+each new Jekyll entry, then used for that post's `:LANG:` property. Changing the
+default later therefore does not relabel existing entries. `links` may contain
+zero, one, or several profile links.
+
 Copy `.env.example` to `.env` if you run in local environment:
 And fill the information.
 
@@ -342,6 +366,10 @@ Similarly, failures at or after the `commit` phase may require manual Git or rem
 ### Org Social
 
 When `destinations.org_social` is checked, Satomi-2000 publishes `social.org` under `site.public_files_directory` as part of the same Jekyll deployment. It requires no API key and does not use Emacs. The choice is stored in each entry's front matter, so an entry published while Org Social is unchecked will not appear retroactively if the file is regenerated later.
+
+The `org_social` block controls the profile header independently from Jekyll,
+RSS, and JSON Feed. It supports a dedicated title, nick, description, avatar,
+multiple links, advertised languages, and a default language for new posts.
 
 ### Mastodon
 

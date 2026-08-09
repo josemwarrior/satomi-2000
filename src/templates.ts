@@ -9,6 +9,7 @@ export interface ContentEntry {
   alt?: string;
   tags: string[];
   language: string;
+  orgSocialLanguage: string;
   text: string;
   orgSocial: boolean;
 }
@@ -35,6 +36,7 @@ export function contentEntryFromPrepared(entry: PreparedEntry, config: ResolvedC
     date: entry.publishedAt,
     tags: entry.tags,
     language: entry.language,
+    orgSocialLanguage: config.org_social.default_language,
     text: entry.text,
     orgSocial: config.destinations.org_social,
   };
@@ -55,6 +57,7 @@ export function renderPost(entry: ContentEntry, config: ResolvedConfig): string 
     tags: entry.tags,
     syndicate: {
       org_social: entry.orgSocial,
+      org_social_language: entry.orgSocialLanguage,
       mastodon: config.destinations.mastodon,
       bluesky: config.destinations.bluesky,
       x: config.destinations.x,
@@ -71,11 +74,12 @@ function orgTimestamp(isoDate: string): string {
 
 export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig): string {
   const header = [
-    `#+TITLE: ${config.content.title}`,
-    `#+NICK: ${config.content.nick}`,
-    `#+DESCRIPTION: ${config.content.description}`,
-    `#+AVATAR: ${config.content.avatar_url}`,
-    `#+LINK: ${config.site.public_url}/`,
+    `#+TITLE: ${config.org_social.title}`,
+    `#+NICK: ${config.org_social.nick}`,
+    `#+DESCRIPTION: ${config.org_social.description}`,
+    `#+AVATAR: ${config.org_social.avatar_url}`,
+    ...config.org_social.links.map((link) => `#+LINK: ${link}`),
+    `#+LANGUAGE: ${config.org_social.languages.join(" ")}`,
     "",
     "* Posts",
   ];
@@ -84,7 +88,7 @@ export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig)
       "",
       `** ${orgTimestamp(entry.date)}`,
       ":PROPERTIES:",
-      `:LANG: ${entry.language}`,
+      `:LANG: ${entry.orgSocialLanguage}`,
       `:TAGS: ${entry.tags.join(" ")}`,
       ":END:",
       "",
@@ -172,4 +176,3 @@ export function renderSyndicationData(state: PublicationState): string {
   );
   return `${JSON.stringify(data, null, 2)}\n`;
 }
-
