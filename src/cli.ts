@@ -3,6 +3,7 @@ import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
 import { DEFAULT_CONFIG_FILE, loadConfig } from "./config.js";
+import { applyDestinationExclusions, EXCLUSION_CODES_HELP } from "./destinations.js";
 import { SatomiError, ValidationError } from "./errors.js";
 import {
   preview,
@@ -29,7 +30,8 @@ interface DraftOptions {
   title?: string;
   slug?: string;
   tags?: string;
-  forceXUrl?: boolean;
+  exclude?: string;
+  forceX?: boolean;
 }
 
 const program = new Command();
@@ -37,6 +39,7 @@ program
   .name("satomi-2000")
   .description("Publish a Jekyll microblog entry and cross-post it safely.")
   .version("0.1.0")
+  .showHelpAfterError()
   .option(
     "-c, --config <file>",
     "private configuration file",
@@ -45,20 +48,22 @@ program
 
 function addDraftOptions(command: Command): Command {
   return command
-    .option("--text <text>", "post text")
-    .option("--image <file>", "optional PNG, JPEG, WebP, or animated GIF path")
-    .option("--alt <text>", "optional alternative text for an attached image")
+    .option("-t, --text <text>", "post text")
+    .option("-i, --image <file>", "optional PNG, JPEG, WebP, or animated GIF path")
+    .option("-a, --alt <text>", "optional alternative text for an attached image")
     .option("--title <title>", "Jekyll entry title; derived from text when omitted")
     .option("--slug <slug>", "deterministic slug override")
     .option("--tags <tags>", "comma-separated tags")
+    .option("-e, --exclude <codes>", `exclude destinations for this run (${EXCLUSION_CODES_HELP})`)
     .option(
-      "--force-x-url",
+      "--force-x",
       "authorize one higher-cost X post whose final payload contains a URL",
     );
 }
 
-async function config(): Promise<ResolvedConfig> {
-  return await loadConfig(program.opts<{ config: string }>().config);
+async function config(exclude?: string): Promise<ResolvedConfig> {
+  const resolved = await loadConfig(program.opts<{ config: string }>().config);
+  return applyDestinationExclusions(resolved, exclude);
 }
 
 async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
@@ -72,7 +77,7 @@ async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
           undefined
         : undefined);
     const alt = options.alt;
-    const draft: DraftInput = { text, forceXUrl: options.forceXUrl ?? false };
+    const draft: DraftInput = { text, forceXUrl: options.forceX ?? false };
     if (imagePath) draft.imagePath = imagePath;
     if (alt !== undefined) draft.alt = alt;
     if (options.title !== undefined) draft.title = options.title;
@@ -175,18 +180,36 @@ function printHistory(rows: PublicationHistoryRow[], timeZone: string): void {
   }
 }
 
-addDraftOptions(program.command("publish").description("Publish one new entry")).action(
-  async (options: DraftOptions) => {
-    const resolved = await config();
-    const summary = await publish(() => obtainDraft(options), resolved);
-    printSummary(summary);
-  },
-);
+addDraftOptions(program.command("post").description("Publish one new entry"))
+  .addHelpText(
+    "after",
+    `
+Destination exclusion codes:
+  o  Org Social (social.org)
+  x  X
+  m  Mastodon
+  b  Bluesky
+  t  Telegram (reserved for future use)
+
+Examples:
+  $ satomi-2000 post -t "A text-only update."
+  $ satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
+  $ satomi-2000 post -t "Jekyll and Bluesky only." -e omxt
+  $ satomi-2000 post -t "Notes: https://example.com" --force-x
+`,
+  )
+  .action(
+    async (options: DraftOptions) => {
+      const resolved = await config(options.exclude);
+      const summary = await publish(() => obtainDraft(options), resolved);
+      printSummary(summary);
+    },
+  );
 
 addDraftOptions(
   program.command("validate").description("Run preflight and a temporary Jekyll build without publishing"),
 ).action(async (options: DraftOptions) => {
-  const resolved = await config();
+  const resolved = await config(options.exclude);
   const draft = await obtainDraft(options);
   const entry = await validateDraft(draft, resolved);
   console.log(`Validation passed: ${entry.slug}`);
@@ -209,13 +232,13 @@ program
       .choices(["mastodon", "bluesky", "x"])
   )
   .option(
-    "--force-x-url",
+    "--force-x",
     "authorize one higher-cost X retry whose final payload contains a URL",
   )
-  .action(async (identifier: string, options: { platform?: PlatformName; forceXUrl?: boolean }) => {
+  .action(async (identifier: string, options: { platform?: PlatformName; forceX?: boolean }) => {
     printSummary(
       await retryPublication(identifier, options.platform, await config(), {
-        forceXUrl: options.forceXUrl ?? false,
+        forceXUrl: options.forceX ?? false,
       }),
     );
   });
@@ -266,6 +289,20 @@ program
   .action(async (slug: string) => {
     console.log(JSON.stringify(await publicationStatus(slug, await config()), null, 2));
   });
+
+program.addHelpText(
+  "after",
+  `
+Examples:
+  $ satomi-2000 post -t "A text-only update."
+  $ satomi-2000 post -t "Skip Telegram and X." -e tx
+  $ satomi-2000 history
+  $ satomi-2000 post --help
+
+Use --force-x with post or retry to authorize an X payload containing a URL.
+Use post --help for media options and destination exclusion codes.
+`,
+);
 
 program.action(async () => {
   const resolved = await config();

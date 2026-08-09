@@ -172,18 +172,6 @@ export async function loadConfig(configFile: string): Promise<ResolvedConfig> {
   safeRelativePath(config.site.syndication_data_file, "site.syndication_data_file");
   safeRelativePath(config.jekyll.output_directory, "jekyll.output_directory");
 
-  const enabledPlatforms = (["mastodon", "bluesky", "x"] as const).filter(
-    (name) => config.destinations[name],
-  );
-  if (
-    enabledPlatforms.some((name) => config.platforms[name].append_canonical_url) &&
-    !config.git.push
-  ) {
-    throw new ValidationError(
-      "git.push must be true when an enabled platform appends the canonical URL.",
-    );
-  }
-
   const configDirectory = path.dirname(configPath);
   const repositoryPath = path.resolve(configDirectory, config.site.repository_path);
   if (!(await pathExists(repositoryPath)) || !(await stat(repositoryPath)).isDirectory()) {

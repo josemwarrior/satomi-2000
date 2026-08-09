@@ -112,6 +112,7 @@ export interface PublicationAttempt {
   status: PublicationAttemptStatus;
   phase: PublicationAttemptPhase;
   draft: DraftInput;
+  destinations?: Config["destinations"];
   slug?: string;
   error?: string;
   retryable: boolean;

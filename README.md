@@ -12,7 +12,7 @@ With a single command, you can publish text and an optional PNG, JPEG, WebP, or 
 - Bluesky (optional)
 - Org Social (optional)
 
-**Note:** The X API currently charges per use. Satomi-2000 blocks X payloads containing a URL unless that one run includes `--force-x-url`.
+**Note:** The X API currently charges per use. Satomi-2000 blocks X payloads containing a URL unless that one run includes `--force-x`.
 
 The Satomi-2000 project and the Jekyll site may live anywhere on the same machine. The Jekyll repository, posts directory, media directory, generated public-files directory, and public URLs are configuration values. Satomi does not assume a custom collection or a `/microblog` subpath.
 
@@ -123,26 +123,28 @@ Interactive publication:
 Non-interactive publication:
 
 ```bash
-./satomi-2000 publish \
-  --text "Enemies now react to the weapon element." \
-  --image captures/slime-fire.gif
+./satomi-2000 post \
+  -t "Enemies now react to the weapon element." \
+  -i captures/slime-fire.gif
 ```
 
 PNG, JPEG, and WebP use the same option and are uploaded natively without FFmpeg:
 
 ```bash
-./satomi-2000 publish --text "New title screen." --image captures/title.png
-./satomi-2000 publish --text "New key art." --image captures/key-art.jpg
-./satomi-2000 publish --text "New portrait." --image captures/portrait.webp
+./satomi-2000 post --text "New title screen." --image captures/title.png
+./satomi-2000 post --text "New key art." --image captures/key-art.jpg
+./satomi-2000 post --text "New portrait." --image captures/portrait.webp
 ```
 
 For a text-only publication, press Enter at the interactive image prompt or omit `--image` in a non-interactive command:
 
 ```bash
-./satomi-2000 publish --text "The save system is now stable."
+./satomi-2000 post -t "The save system is now stable."
 ```
 
 Alternative text is optional and is never requested interactively. Supply it explicitly with `--alt` when wanted. Satomi-2000 sends provided alt text only through platform features that support it: Mastodon media descriptions, Bluesky image/video alt, and X image metadata for PNG, JPEG, and WebP. X animated GIF uploads do not receive image-only alt metadata.
+
+`--text`, `--image`, and `--alt` also have the short forms `-t`, `-i`, and `-a`.
 
 Formats are detected from their file signatures. With `validation.require_matching_image_extension` enabled, JPEG accepts either `.jpg` or `.jpeg`; PNG and WebP require `.png` and `.webp`. The existing `max_png_mb` platform setting is the shared size limit for all three static image formats.
 
@@ -170,15 +172,47 @@ Other commands:
 ./satomi-2000 retry A000002 --platform mastodon
 ```
 
+Run `./satomi-2000 --help` for the command overview, or
+`./satomi-2000 post --help` for all publication options.
+
+### Per-run destination exclusions
+
+Without `--exclude`/`-e`, Satomi uses the destinations checked in
+`satomi.config.yml`. The option temporarily unchecks destinations for one
+`post` or `validate` run; it never edits the configuration and cannot enable a
+destination whose configured value is `false`. Jekyll is mandatory and cannot
+be excluded.
+
+The codes can be combined in any order:
+
+- `o`: Org Social (`social.org`)
+- `x`: X
+- `m`: Mastodon
+- `b`: Bluesky
+- `t`: Telegram (accepted now and reserved for the future adapter)
+
+For example, this publishes everywhere enabled by the configuration except
+Telegram and X:
+
+```bash
+./satomi-2000 post -t "No Telegram or X for this update." -e tx
+```
+
+This leaves only the mandatory Jekyll publication:
+
+```bash
+./satomi-2000 post -t "Jekyll only." -e xtmbo
+```
+
 See [Publication history and recovery](#publication-history-and-recovery) for attempt IDs, status and phase definitions, worktree conflict resolution, and safe retry procedures.
 
 If X is selected and its final payload contains any URL, validation stops before creating files or calling social APIs. Authorize only that higher-cost publication explicitly:
 
 ```bash
-./satomi-2000 publish --text "Full notes: https://example.com/update" --force-x-url
+./satomi-2000 post --text "Full notes: https://example.com/update" --force-x
 ```
 
-The same flag is required for an X retry containing a URL. `--force-x-url` does not bypass character limits, media limits, duplicate protection, daily X limits, or the configured maximum cost.
+The same flag is required for an X retry containing a URL. `--force-x` does not bypass character limits, media limits, duplicate protection, daily X limits, or the configured maximum cost.
 
 Use `--config /private/path/config.yml` or set `SATOMI_CONFIG` when the private configuration is stored elsewhere.
 
@@ -344,7 +378,7 @@ When exactly one platform failed, the attempt ID alone is also sufficient; Satom
 For an X payload containing a URL, authorize the higher configured cost for that retry explicitly:
 
 ```bash
-satomi-2000 retry A000002 --platform x --force-x-url
+satomi-2000 retry A000002 --platform x --force-x
 ```
 
 Satomi rebuilds the platform payload and verifies its hash against the original publication before retrying. If configuration changes would alter the payload, retry stops and asks you to restore the original configuration. A platform with state `published`, `not_started`, `pending`, or `unknown` cannot be retried.

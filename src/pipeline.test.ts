@@ -31,7 +31,7 @@ describe("X URL cost authorization", () => {
       platformPayloads: { x: "A costly link example.com" },
       forceXUrl: false,
     } as PreparedEntry;
-    expect(() => validateXGuardrails(entry, emptyState(), config)).toThrow(/--force-x-url/);
+    expect(() => validateXGuardrails(entry, emptyState(), config)).toThrow(/--force-x/);
   });
 
   it("allows the URL with the specific force flag while retaining cost limits", () => {
@@ -176,6 +176,13 @@ describe("publication history", () => {
       phase: "staging",
       retryable: true,
       worktree_files: ["microblog/feed.json"],
+      destinations: {
+        jekyll: true,
+        org_social: false,
+        mastodon: false,
+        bluesky: false,
+        x: false,
+      },
     });
   });
 });

@@ -92,12 +92,12 @@ export function validateXGuardrails(
   const containsUrl = xPayloadContainsUrl(entry.platformPayloads.x ?? "");
   if (containsUrl && !entry.forceXUrl) {
     throw new ValidationError(
-      "The X payload contains a URL, which has a considerably higher configured cost. Re-run with --force-x-url to authorize this specific X post.",
+      "The X payload contains a URL, which has a considerably higher configured cost. Re-run with --force-x to authorize this specific X post.",
     );
   }
   if (containsUrl) {
     process.stderr.write(
-      "WARNING: --force-x-url accepted; the X post contains a URL and uses the higher configured cost estimate.\n",
+      "WARNING: --force-x accepted; the X post contains a URL and uses the higher configured cost estimate.\n",
     );
   }
   const estimatedCost = containsUrl
@@ -128,6 +128,14 @@ async function preflight(
   const selected = platforms ?? (["mastodon", "bluesky", "x"] as PlatformName[]).filter(
     (name) => config.destinations[name],
   );
+  if (
+    selected.some((name) => config.platforms[name].append_canonical_url) &&
+    !config.git.push
+  ) {
+    throw new ValidationError(
+      "git.push must be true when an enabled platform appends the canonical URL.",
+    );
+  }
   await validateTools(entry, config, selected);
   await validateGitRepository(config);
   if (selected.includes("x")) validateXGuardrails(entry, state, config);
@@ -247,6 +255,7 @@ export async function publish(
     } else {
       publicationAttempt = createPublicationAttempt(state, input);
     }
+    publicationAttempt.destinations = { ...config.destinations };
     await saveState(config, state);
 
     updatePublicationAttempt(publicationAttempt, "prepare");
@@ -589,7 +598,10 @@ export async function retryPublication(
       `Attempt ${identifier} is blocked by local Jekyll changes. Run satomi-2000 resolve ${identifier} first.`,
     );
   }
-  return await publish(async () => attempt.draft, config, { attemptId: identifier });
+  const retryConfig = attempt.destinations
+    ? { ...config, destinations: { ...attempt.destinations } }
+    : config;
+  return await publish(async () => attempt.draft, retryConfig, { attemptId: identifier });
 }
 
 export interface AttemptResolution {
