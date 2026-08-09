@@ -117,7 +117,16 @@ export function makeEntryState(entry: PreparedEntry, config: ResolvedConfig): En
   if (entry.media) {
     result.media_sha256 = entry.media.sha256;
     result.media_url = entry.media.publicUrl;
-    result.repository_media_path = path.join(config.site.media_directory, entry.media.fileName);
+    result.media_type = entry.media.type;
+    result.media_bytes = entry.media.bytes;
+    result.media_width = entry.media.width;
+    result.media_height = entry.media.height;
+    if (entry.media.durationSeconds !== undefined) {
+      result.media_duration_seconds = entry.media.durationSeconds;
+    }
+    if (entry.media.type !== "mp4") {
+      result.repository_media_path = path.join(config.site.media_directory, entry.media.fileName);
+    }
   }
   if (config.destinations.org_social) {
     result.org_social_url = `${config.site.public_url}/social.org`;

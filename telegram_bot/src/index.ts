@@ -4,7 +4,7 @@ export interface Env {
   TELEGRAM_GATEWAY_TOKEN: string;
 }
 
-type MediaType = "gif" | "png" | "jpeg" | "webp";
+type MediaType = "gif" | "png" | "jpeg" | "webp" | "mp4";
 
 interface PublishRequest {
   slug: string;
@@ -69,7 +69,7 @@ const SERVICE = "satomi-telegram";
 const VERSION = "0.1.0";
 const MAX_BODY_BYTES = 32_768;
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
-const MEDIA_TYPES = new Set<MediaType>(["gif", "png", "jpeg", "webp"]);
+const MEDIA_TYPES = new Set<MediaType>(["gif", "png", "jpeg", "webp", "mp4"]);
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -156,7 +156,7 @@ function parseMedia(value: unknown): PublishRequest["media"] {
     throw new HttpError(
       400,
       "invalid_request",
-      "media.type must be one of: gif, png, jpeg, webp.",
+      "media.type must be one of: gif, png, jpeg, webp, mp4.",
     );
   }
   return { url: url.toString(), type: value.type as MediaType };
@@ -414,7 +414,7 @@ async function publishTelegram(
   env: Env,
   publication: PublishRequest,
 ): Promise<Response> {
-  let method: "sendMessage" | "sendPhoto" | "sendAnimation" | "sendDocument";
+  let method: "sendMessage" | "sendPhoto" | "sendAnimation" | "sendDocument" | "sendVideo";
   let parameters: Record<string, unknown>;
   if (!publication.media) {
     method = "sendMessage";
@@ -432,6 +432,14 @@ async function publishTelegram(
       chat_id: env.TELEGRAM_CHANNEL_ID,
       document: publication.media.url,
       caption: publication.text,
+    };
+  } else if (publication.media.type === "mp4") {
+    method = "sendVideo";
+    parameters = {
+      chat_id: env.TELEGRAM_CHANNEL_ID,
+      video: publication.media.url,
+      caption: publication.text,
+      supports_streaming: true,
     };
   } else {
     method = "sendPhoto";

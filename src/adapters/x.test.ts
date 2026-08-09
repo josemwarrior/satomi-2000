@@ -26,6 +26,7 @@ async function mediaEntry(type: MediaType): Promise<PreparedEntry> {
     png: { extension: ".png", mimeType: "image/png" },
     jpeg: { extension: ".jpg", mimeType: "image/jpeg" },
     webp: { extension: ".webp", mimeType: "image/webp" },
+    mp4: { extension: ".mp4", mimeType: "video/mp4" },
   } as const;
   const { extension, mimeType } = mediaDetails[type];
   const sourcePath = path.join(directory, `capture${extension}`);
@@ -104,6 +105,29 @@ describe("X media capabilities", () => {
       media_type: "image/gif",
       total_bytes: 10,
       media_category: "tweet_gif",
+      shared: false,
+    });
+    expect(urls).not.toContain("https://api.x.com/2/media/metadata");
+  });
+
+  it("uploads MP4 video through the chunked tweet_video path", async () => {
+    const responses = [
+      json({ data: { id: "video-1" } }),
+      new Response(null, { status: 204 }),
+      json({ data: { id: "video-1" } }),
+      json({ data: { id: "post-video" } }),
+    ];
+    const fetchMock = vi.fn(async () => responses.shift() ?? json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    await publishX(await mediaEntry("mp4"), config, credentials);
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls).toContain("https://api.x.com/2/media/upload/initialize");
+    expect(urls).toContain("https://api.x.com/2/media/upload/video-1/append");
+    expect(urls).toContain("https://api.x.com/2/media/upload/video-1/finalize");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      media_type: "video/mp4",
+      total_bytes: 10,
+      media_category: "tweet_video",
       shared: false,
     });
     expect(urls).not.toContain("https://api.x.com/2/media/metadata");

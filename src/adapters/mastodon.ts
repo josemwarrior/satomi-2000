@@ -29,6 +29,9 @@ export async function validateMastodonInstance(
       statuses?: { max_characters?: number };
       media_attachments?: {
         image_size_limit?: number;
+        video_size_limit?: number;
+        video_frame_rate_limit?: number;
+        video_matrix_limit?: number;
         supported_mime_types?: string[];
       };
     };
@@ -45,13 +48,32 @@ export async function validateMastodonInstance(
       `Mastodon payload contains ${count} graphemes; the instance limit is ${maximumCharacters}.`,
     );
   }
-  const instanceBytes = instance.configuration?.media_attachments?.image_size_limit;
+  const mediaConfiguration = instance.configuration?.media_attachments;
+  const instanceBytes = entry.media?.type === "mp4"
+    ? mediaConfiguration?.video_size_limit
+    : mediaConfiguration?.image_size_limit;
   if (instanceBytes && entry.media && entry.media.bytes > instanceBytes) {
     throw new ValidationError(
-      `The image is ${(entry.media.bytes / 1_000_000).toFixed(2)} MB; the Mastodon instance limit is ${(instanceBytes / 1_000_000).toFixed(2)} MB.`,
+      `The media is ${(entry.media.bytes / 1_000_000).toFixed(2)} MB; the Mastodon instance limit is ${(instanceBytes / 1_000_000).toFixed(2)} MB.`,
     );
   }
-  const supportedMimeTypes = instance.configuration?.media_attachments?.supported_mime_types;
+  if (
+    entry.media?.type === "mp4" &&
+    mediaConfiguration?.video_frame_rate_limit &&
+    (entry.media.frameRate ?? 0) > mediaConfiguration.video_frame_rate_limit
+  ) {
+    throw new ValidationError(
+      `The video frame rate exceeds the Mastodon instance limit of ${mediaConfiguration.video_frame_rate_limit} fps.`,
+    );
+  }
+  if (
+    entry.media?.type === "mp4" &&
+    mediaConfiguration?.video_matrix_limit &&
+    entry.media.width * entry.media.height > mediaConfiguration.video_matrix_limit
+  ) {
+    throw new ValidationError("The video dimensions exceed the Mastodon instance pixel limit.");
+  }
+  const supportedMimeTypes = mediaConfiguration?.supported_mime_types;
   if (entry.media && supportedMimeTypes && !supportedMimeTypes.includes(entry.media.mimeType)) {
     throw new ValidationError(
       `The Mastodon instance does not support ${entry.media.mimeType} uploads.`,
@@ -66,10 +88,10 @@ export async function publishMastodon(
   let mediaId: string | undefined;
   if (entry.media) {
     const form = new FormData();
-    const image = new Uint8Array(await readFile(entry.media.sourcePath));
+    const mediaBytes = new Uint8Array(await readFile(entry.media.sourcePath));
     form.append(
       "file",
-      new Blob([image], { type: entry.media.mimeType }),
+      new Blob([mediaBytes], { type: entry.media.mimeType }),
       entry.media.fileName,
     );
     if (entry.alt) form.append("description", entry.alt);
@@ -89,7 +111,7 @@ export async function publishMastodon(
       });
       media = await responseJson<MediaResponse>(response, "Mastodon media processing");
     }
-    if (!media.url) throw new SatomiError("Mastodon did not finish processing the image in time.");
+    if (!media.url) throw new SatomiError("Mastodon did not finish processing the media in time.");
     mediaId = media.id;
   }
 

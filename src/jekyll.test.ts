@@ -159,5 +159,34 @@ describe("Jekyll staging", () => {
     } finally {
       await cleanupStagedSite(stagedWithoutOrgSocial);
     }
+
+    const videoEntry = {
+      ...entry,
+      slug: "2026-08-08-video",
+      media: {
+        ...entry.media!,
+        fileName: "remote-video.mp4",
+        type: "mp4",
+        mimeType: "video/mp4",
+        bytes: 1_000,
+        width: 1280,
+        height: 720,
+        durationSeconds: 7,
+        publicUrl: "https://files.example/remote-video.mp4",
+      },
+    } as PreparedEntry;
+    const stagedVideo = await stageSite(videoEntry, config);
+    try {
+      expect(stagedVideo.generatedPaths).not.toContain("custom/media/remote-video.mp4");
+      const post = await readFile(
+        path.join(stagedVideo.repository, "_posts/2026-08-08-video.md"),
+        "utf8",
+      );
+      expect(post).toContain("video: 'https://files.example/remote-video.mp4'");
+      expect(post).toContain("video_type: video/mp4");
+      expect(post).toContain("video_duration: 7");
+    } finally {
+      await cleanupStagedSite(stagedVideo);
+    }
   });
 });

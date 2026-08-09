@@ -4,7 +4,8 @@
 
 Satomi-2000 is a command-line publishing tool for a Jekyll microblog.
 
-With a single command, you can publish text and an optional PNG, JPEG, WebP, or animated GIF image to:
+With a single command, you can publish text with an optional local PNG, JPEG,
+WebP, or animated GIF, or with an external MP4 URL, to:
 
 - A Jekyll blog (**mandatory**)
 - X (optional)
@@ -22,7 +23,7 @@ The Satomi-2000 project and the Jekyll site may live anywhere on the same machin
 - Node.js 20 or newer
 - Git
 - The Ruby, Bundler, and Jekyll toolchain required by the target site
-- FFmpeg only when a publication combines an animated GIF with Bluesky
+- FFmpeg/FFprobe when publishing an MP4 URL, or an animated GIF to Bluesky
 - Node.js 22 or newer only when developing or deploying `telegram_bot`
 
 ## Installation
@@ -70,7 +71,7 @@ site:
   # source directory already configured in Jekyll.
   posts_directory: _posts
 
-  # An optional PNG, JPEG, WebP, or GIF is copied here.
+  # An optional PNG, JPEG, WebP, or GIF is copied here. MP4 files are never copied.
   media_directory: assets/microblog/media
 
   # feed.xml, feed.json, and social.org are written here. This directory must
@@ -130,6 +131,7 @@ platforms:
     max_characters: 1024
     max_gif_mb: 50
     max_png_mb: 10
+    max_video_mb: 20
     append_canonical_url: true
     include_tags: true
     upload_native_media: true
@@ -175,7 +177,26 @@ PNG, JPEG, and WebP use the same option and are uploaded natively without FFmpeg
 ./satomi-2000 post --text "New portrait." --image captures/portrait.webp
 ```
 
-For a text-only publication, press Enter at the interactive image prompt or omit `--image` in a non-interactive command:
+MP4 input is always an external, direct HTTPS URL. Satomi downloads it once to
+a private temporary directory, validates its real container and streams with
+FFprobe, reuses that temporary file for native social uploads, and deletes it
+when the run finishes. The video is not copied to the Jekyll repository:
+
+```bash
+./satomi-2000 post \
+  --text "Seven seconds of gameplay." \
+  --video https://files.catbox.moe/example.mp4 \
+  --alt "The player crossing a room"
+```
+
+`--image`/`-i` and `--video`/`-v` are mutually exclusive. Both may be omitted
+for a text-only post. A remote MP4 must use H.264, YUV 4:2:0, progressive scan,
+square pixels, at most 60 fps, AAC-LC mono/stereo when audio is present, and the
+configured duration and dimensions. The default compatibility profile is at
+most 140 seconds and 1280x1280. When Telegram is enabled, its `max_video_mb: 20`
+is the common size limit because Telegram downloads the public URL itself.
+
+For a text-only publication, press Enter at both interactive media prompts or omit `--image` and `--video` in a non-interactive command:
 
 ```bash
 ./satomi-2000 post -t "The save system is now stable."
@@ -183,11 +204,12 @@ For a text-only publication, press Enter at the interactive image prompt or omit
 
 Alternative text is optional and is never requested interactively. Supply it explicitly with `--alt` when wanted. Satomi-2000 sends provided alt text only through platform features that support it: Mastodon media descriptions, Bluesky image/video alt, and X image metadata for PNG, JPEG, and WebP. X animated GIF uploads do not receive image-only alt metadata. Telegram's Bot API does not expose a separate alternative-text field for these channel publications.
 
-`--text`, `--image`, and `--alt` also have the short forms `-t`, `-i`, and `-a`.
+`--text`, `--image`, `--video`, and `--alt` also have the short forms `-t`,
+`-i`, `-v`, and `-a`.
 
 Formats are detected from their file signatures. With `validation.require_matching_image_extension` enabled, JPEG accepts either `.jpg` or `.jpeg`; PNG and WebP require `.png` and `.webp`. The existing `max_png_mb` platform setting is the shared size limit for all three static image formats.
 
-The title is derived from the first sentence. The slug uses the local date plus the image filename, or the derived title for a text-only post. Both can be supplied explicitly with `--title` and `--slug`. Tags default to `content.default_tags` and can be replaced with `--tags tag-one,tag-two`.
+The title is derived from the first sentence. The slug uses the local date plus the image filename, or the derived title when the post uses video or has no media. Both can be supplied explicitly with `--title` and `--slug`. Tags default to `content.default_tags` and can be replaced with `--tags tag-one,tag-two`.
 
 Other commands:
 
@@ -225,6 +247,9 @@ The usual forms are:
 
 # Text, image, and optional alternative text
 ./satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
+
+# Text and external MP4
+./satomi-2000 post -t "Video update." -v https://files.example/gameplay.mp4
 ```
 
 ### Per-run destination exclusions
@@ -460,16 +485,18 @@ multiple links, advertised languages, and a default language for new posts.
 
 ### Mastodon
 
-Satomi-2000 optionally reads the instance configuration, verifies its advertised MIME support, applies the lower remote limits, uploads an attached PNG, JPEG, WebP, or GIF with a media description, waits for media processing, and creates the status with an idempotency key derived from the slug. Text-only statuses skip media upload.
+Satomi-2000 optionally reads the instance configuration, verifies its advertised MIME support, applies the lower image/video, frame-rate, and pixel limits, uploads attached images or MP4 video with a media description, waits for media processing, and creates the status with an idempotency key derived from the slug. Text-only statuses skip media upload.
 
 ### Bluesky
 
-An animated GIF is converted to a silent H.264 MP4 with even dimensions and `yuv420p`, then published as `app.bsky.embed.video`. PNG, JPEG, and WebP are uploaded directly with their real MIME type as `app.bsky.embed.images`; they are never converted to MP4. Text-only posts have no embed. All variants use a persisted AT Protocol TID record key for safe retries and the same rich-text facet handling.
+An animated GIF is converted to a silent H.264 MP4, while an external MP4 uses
+the already validated temporary download. Both are published as
+`app.bsky.embed.video`. PNG, JPEG, and WebP use `app.bsky.embed.images`.
 
 ### X
 
 Satomi-2000 uses X's direct v2 media upload for PNG, JPEG, and WebP, and the
-v2 initialize/append/finalize workflow for animated GIFs. It then creates
+v2 initialize/append/finalize workflow for animated GIFs and MP4 video. It then creates
 exactly one post. Supported image metadata is added to static-image uploads.
 Text-only posts skip media upload. A timeout or server error after the create
 request is stored as `unknown`; Satomi-2000 will not retry it. Reconcile the
@@ -492,7 +519,8 @@ URL are publicly available, Satomi sends the final Telegram payload and public
 media URL to `/publish`.
 
 The Worker uses `sendMessage` for text, `sendPhoto` for PNG/JPEG,
-`sendAnimation` for GIF, and `sendDocument` for WebP. Channel posts therefore
+`sendAnimation` for GIF, `sendDocument` for WebP, and `sendVideo` with streaming
+enabled for MP4. Channel posts therefore
 display the channel identity. A timeout or an explicitly ambiguous Worker
 response is stored as `unknown`; Satomi refuses to retry it automatically until
 the channel has been reconciled manually.
@@ -563,7 +591,8 @@ satomi-2000 --help
 
 The executable and configuration will now be available in new terminal
 sessions. Relative image paths are still resolved from the terminal's current
-directory, so use an absolute image path when publishing from elsewhere.
+directory, so use an absolute image path when publishing from elsewhere. Video
+input is always an HTTPS URL.
 
 ## License
 

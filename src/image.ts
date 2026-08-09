@@ -2,13 +2,13 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { ValidationError } from "./errors.js";
 import { inspectGifBuffer } from "./gif.js";
-import type { ImageMimeType, MediaType } from "./types.js";
+import type { ImageMediaType, ImageMimeType } from "./types.js";
 
 type ImageExtension = ".gif" | ".png" | ".jpg" | ".jpeg" | ".webp";
 
 export interface ImageInfo {
   buffer: Buffer;
-  type: MediaType;
+  type: ImageMediaType;
   mimeType: ImageMimeType;
   extension: ImageExtension;
   bytes: number;

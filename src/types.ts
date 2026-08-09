@@ -4,8 +4,10 @@ import type { configSchema } from "./config.js";
 export type Config = z.infer<typeof configSchema>;
 export const PLATFORM_NAMES = ["mastodon", "bluesky", "x", "telegram"] as const;
 export type PlatformName = (typeof PLATFORM_NAMES)[number];
-export type MediaType = "gif" | "png" | "jpeg" | "webp";
+export type ImageMediaType = "gif" | "png" | "jpeg" | "webp";
+export type MediaType = ImageMediaType | "mp4";
 export type ImageMimeType = "image/gif" | "image/png" | "image/jpeg" | "image/webp";
+export type MediaMimeType = ImageMimeType | "video/mp4";
 export type PlatformStatus =
   | "not_started"
   | "pending"
@@ -37,6 +39,7 @@ export interface ResolvedConfig extends Config {
 export interface DraftInput {
   text: string;
   imagePath?: string;
+  videoUrl?: string;
   alt?: string;
   title?: string;
   slug?: string;
@@ -48,11 +51,13 @@ export interface PreparedMedia {
   sourcePath: string;
   fileName: string;
   type: MediaType;
-  mimeType: ImageMimeType;
+  mimeType: MediaMimeType;
   bytes: number;
   width: number;
   height: number;
   frames?: number;
+  durationSeconds?: number;
+  frameRate?: number;
   sha256: string;
   publicUrl: string;
 }
@@ -90,6 +95,11 @@ export interface EntryState {
   gif_sha256?: string;
   canonical_url: string;
   media_url?: string;
+  media_type?: MediaType;
+  media_bytes?: number;
+  media_width?: number;
+  media_height?: number;
+  media_duration_seconds?: number;
   repository_media_path?: string;
   text: string;
   alt?: string;

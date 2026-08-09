@@ -28,6 +28,7 @@ import {
 interface DraftOptions {
   text?: string;
   image?: string;
+  video?: string;
   alt?: string;
   title?: string;
   slug?: string;
@@ -51,8 +52,15 @@ program
 function addDraftOptions(command: Command): Command {
   return command
     .option("-t, --text <text>", "post text")
-    .option("-i, --image <file>", "optional PNG, JPEG, WebP, or animated GIF path")
-    .option("-a, --alt <text>", "optional alternative text for an attached image")
+    .addOption(
+      new Option("-i, --image <file>", "optional PNG, JPEG, WebP, or animated GIF path")
+        .conflicts("video"),
+    )
+    .addOption(
+      new Option("-v, --video <url>", "optional direct HTTPS URL of an MP4 video")
+        .conflicts("image"),
+    )
+    .option("-a, --alt <text>", "optional alternative text for attached media")
     .option("--title <title>", "Jekyll entry title; derived from text when omitted")
     .option("--slug <slug>", "deterministic slug override")
     .option("--tags <tags>", "comma-separated tags")
@@ -74,13 +82,20 @@ async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
     const text = options.text ?? (await terminal.question("Post text:\n> "));
     const imagePath =
       options.image ??
-      (options.text === undefined
+      (options.text === undefined && options.video === undefined
         ? (await terminal.question("Image (optional PNG, JPEG, WebP, or GIF; press Enter to skip):\n> ")).trim() ||
+          undefined
+        : undefined);
+    const videoUrl =
+      options.video ??
+      (options.text === undefined && !imagePath
+        ? (await terminal.question("Video (optional direct HTTPS MP4 URL; press Enter to skip):\n> ")).trim() ||
           undefined
         : undefined);
     const alt = options.alt;
     const draft: DraftInput = { text, forceXUrl: options.forceX ?? false };
     if (imagePath) draft.imagePath = imagePath;
+    if (videoUrl) draft.videoUrl = videoUrl;
     if (alt !== undefined) draft.alt = alt;
     if (options.title !== undefined) draft.title = options.title;
     if (options.slug !== undefined) draft.slug = options.slug;
@@ -196,6 +211,7 @@ Destination exclusion codes:
 Examples:
   $ satomi-2000 post -t "A text-only update."
   $ satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
+  $ satomi-2000 post -t "Video update." -v https://files.example/video.mp4 -a "Gameplay footage"
   $ satomi-2000 post -t "Jekyll and Bluesky only." -e omxt
   $ satomi-2000 post -t "Notes: https://example.com" --force-x
 `,
@@ -298,7 +314,8 @@ program.addHelpText(
 Post options:
   -t, --text <text>      Post text
   -i, --image <file>     Optional PNG, JPEG, WebP, or animated GIF
-  -a, --alt <text>       Optional alternative text for the image
+  -v, --video <url>      Optional direct HTTPS URL of an MP4 video
+  -a, --alt <text>       Optional alternative text for attached media
   -e, --exclude <codes>  Exclude destinations for this run
   --force-x              Authorize an X payload containing a URL
 
@@ -306,6 +323,7 @@ Examples:
   $ satomi-2000 post -t "A text-only update."
   $ satomi-2000 post -t "Animation update." -i game.gif
   $ satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
+  $ satomi-2000 post -t "Video update." -v https://files.example/video.mp4
   $ satomi-2000 post -t "Skip Telegram and X." -e tx
   $ satomi-2000 history
   $ satomi-2000 post --help

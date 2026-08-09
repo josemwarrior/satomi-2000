@@ -64,8 +64,12 @@ async function uploadStaticImage(entry: PreparedEntry, token: string): Promise<s
   return uploaded.data.id;
 }
 
-async function uploadAnimatedGif(entry: PreparedEntry, token: string): Promise<string> {
-  if (!entry.media) throw new SatomiError("X media upload requires an image attachment.");
+async function uploadChunkedMedia(
+  entry: PreparedEntry,
+  token: string,
+  mediaCategory: "tweet_gif" | "tweet_video",
+): Promise<string> {
+  if (!entry.media) throw new SatomiError("X media upload requires an attachment.");
   const headers = { ...authorization(token), "User-Agent": "satomi/0.1" };
   const initResponse = await fetch(`${MEDIA_UPLOAD_URL}/initialize`, {
     method: "POST",
@@ -73,7 +77,7 @@ async function uploadAnimatedGif(entry: PreparedEntry, token: string): Promise<s
     body: JSON.stringify({
       media_type: entry.media.mimeType,
       total_bytes: entry.media.bytes,
-      media_category: "tweet_gif",
+      media_category: mediaCategory,
       shared: false,
     }),
     signal: AbortSignal.timeout(30_000),
@@ -117,11 +121,13 @@ async function uploadAnimatedGif(entry: PreparedEntry, token: string): Promise<s
 }
 
 async function uploadMedia(entry: PreparedEntry, token: string): Promise<string> {
-  if (!entry.media) throw new SatomiError("X media upload requires an image attachment.");
+  if (!entry.media) throw new SatomiError("X media upload requires an attachment.");
   const mediaId = entry.media.type === "gif"
-    ? await uploadAnimatedGif(entry, token)
-    : await uploadStaticImage(entry, token);
-  if (entry.media.type !== "gif" && entry.alt) {
+    ? await uploadChunkedMedia(entry, token, "tweet_gif")
+    : entry.media.type === "mp4"
+      ? await uploadChunkedMedia(entry, token, "tweet_video")
+      : await uploadStaticImage(entry, token);
+  if (entry.media.type !== "gif" && entry.media.type !== "mp4" && entry.alt) {
     const headers = { ...authorization(token), "User-Agent": "satomi/0.1" };
     const metadataResponse = await fetch("https://api.x.com/2/media/metadata", {
       method: "POST",

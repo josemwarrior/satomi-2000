@@ -90,4 +90,33 @@ describe("derived Jekyll artifacts", () => {
       "The combat system works.",
     );
   });
+
+  it("renders an external MP4 without treating it as a repository image", () => {
+    const videoEntry = {
+      ...entry,
+      image: undefined,
+      video: "https://files.example/gameplay.mp4",
+      videoType: "video/mp4" as const,
+      videoWidth: 1280,
+      videoHeight: 720,
+      videoDurationSeconds: 7,
+      videoBytes: 7_000_000,
+    };
+    const post = renderPost(videoEntry, config);
+    expect(post).toContain("video: 'https://files.example/gameplay.mp4'");
+    expect(post).not.toContain("\nimage:");
+    expect(renderSocialOrg([videoEntry], config)).toContain(
+      "[[https://files.example/gameplay.mp4][Two slimes & a hero]]",
+    );
+    expect(renderRss([videoEntry], config)).toContain("&lt;video controls");
+    const feed = JSON.parse(renderJsonFeed([videoEntry], config)) as {
+      items: Array<{ attachments?: Array<Record<string, unknown>> }>;
+    };
+    expect(feed.items[0]?.attachments?.[0]).toMatchObject({
+      url: "https://files.example/gameplay.mp4",
+      mime_type: "video/mp4",
+      size_in_bytes: 7_000_000,
+      duration_in_seconds: 7,
+    });
+  });
 });

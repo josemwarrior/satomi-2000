@@ -22,8 +22,8 @@ export async function publishBluesky(
   if (!agent.session) throw new SatomiError("Bluesky login returned no session.");
 
   let embed: Record<string, unknown> | undefined;
-  if (entry.media?.type === "gif") {
-    if (!mp4Path) throw new SatomiError("Bluesky GIF publishing requires a converted MP4.");
+  if (entry.media?.type === "gif" || entry.media?.type === "mp4") {
+    if (!mp4Path) throw new SatomiError("Bluesky video publishing requires an MP4 file.");
     const { data: serviceAuth } = await agent.com.atproto.server.getServiceAuth({
       aud: `did:web:${agent.dispatchUrl.host}`,
       lxm: "com.atproto.repo.uploadBlob",

@@ -156,6 +156,7 @@ describe("satomi Telegram Worker", () => {
     ["jpeg", "sendPhoto", "photo"],
     ["gif", "sendAnimation", "animation"],
     ["webp", "sendDocument", "document"],
+    ["mp4", "sendVideo", "video"],
   ] as const)("publishes %s media through %s", async (type, method, mediaField) => {
     telegramFetch.mockResolvedValueOnce(
       telegramResponse({
@@ -184,6 +185,7 @@ describe("satomi Telegram Worker", () => {
       caption: "Media caption",
       [mediaField]: `https://media.example/image.${type}`,
     });
+    if (type === "mp4") expect(parameters.supports_streaming).toBe(true);
   });
 
   it("strictly validates publication payloads before contacting Telegram", async () => {

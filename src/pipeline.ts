@@ -1,4 +1,5 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { AmbiguousPublishError, SatomiError, ValidationError } from "./errors.js";
 import { loadCredentials } from "./credentials.js";
@@ -82,6 +83,7 @@ export function requiredCommands(
 ): string[] {
   const required = new Set(["git", config.jekyll.build_command[0]]);
   if (platforms.includes("bluesky") && entry.media?.type === "gif") required.add("ffmpeg");
+  if (entry.media?.type === "mp4") required.add("ffprobe");
   return [...required].filter((command): command is string => Boolean(command));
 }
 
@@ -174,7 +176,9 @@ async function publishOne(
     if (!blueskyRecordKey) throw new ValidationError("Bluesky record key was not prepared.");
     const mp4 = entry.media?.type === "gif"
       ? await convertGifToMp4(entry, temporaryDirectory)
-      : undefined;
+      : entry.media?.type === "mp4"
+        ? entry.media.sourcePath
+        : undefined;
     return await publishBluesky(entry, mp4, config, credentials.bluesky, blueskyRecordKey);
   }
   if (platform === "x") {
@@ -238,13 +242,17 @@ async function updatePublicSyndication(
 }
 
 export async function validateDraft(input: DraftInput, config: ResolvedConfig): Promise<PreparedEntry> {
-  const entry = await prepareEntry(input, config);
-  const state = await loadState(config);
-  assertNotDuplicate(state, entry);
-  const credentials = await preflight(entry, config, state);
-  void credentials;
   let staged: StagedSite | undefined;
+  let temporaryMediaDirectory: string | undefined;
   try {
+    if (input.videoUrl) {
+      temporaryMediaDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-video-"));
+    }
+    const entry = await prepareEntry(input, config, new Date(), temporaryMediaDirectory);
+    const state = await loadState(config);
+    assertNotDuplicate(state, entry);
+    const credentials = await preflight(entry, config, state);
+    void credentials;
     staged = await stageSite(entry, config);
     await assertGeneratedTargetsClean(
       config.state.publish_syndication_data
@@ -253,10 +261,13 @@ export async function validateDraft(input: DraftInput, config: ResolvedConfig): 
       config,
     );
     await runJekyllBuild(staged.repository, config);
+    return entry;
   } finally {
     await cleanupStagedSite(staged);
+    if (temporaryMediaDirectory) {
+      await rm(temporaryMediaDirectory, { recursive: true, force: true });
+    }
   }
-  return entry;
 }
 
 export async function publish(
@@ -269,6 +280,7 @@ export async function publish(
   let staged: StagedSite | undefined;
   let state: PublicationState | undefined;
   let publicationAttempt: PublicationAttempt | undefined;
+  let temporaryMediaDirectory: string | undefined;
   let canonicalCommitted = false;
   try {
     const suppliedInput = await obtainInput();
@@ -290,7 +302,10 @@ export async function publish(
 
     updatePublicationAttempt(publicationAttempt, "prepare");
     await saveState(config, state);
-    const entry = await prepareEntry(input, config);
+    if (input.videoUrl) {
+      temporaryMediaDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-video-"));
+    }
+    const entry = await prepareEntry(input, config, new Date(), temporaryMediaDirectory);
     publicationAttempt.slug = entry.slug;
     publicationAttempt.draft = {
       ...input,
@@ -398,6 +413,9 @@ export async function publish(
     throw error;
   } finally {
     await cleanupStagedSite(staged);
+    if (temporaryMediaDirectory) {
+      await rm(temporaryMediaDirectory, { recursive: true, force: true });
+    }
     await lock.release();
   }
 }
@@ -406,8 +424,10 @@ function rebuildEntryForRetry(
   slug: string,
   entryState: EntryState,
   imagePath: string | undefined,
+  videoUrl: string | undefined,
   config: ResolvedConfig,
   forceXUrl: boolean,
+  temporaryDirectory: string,
 ): Promise<PreparedEntry> {
   const input: DraftInput = {
     text: entryState.text,
@@ -416,8 +436,9 @@ function rebuildEntryForRetry(
     forceXUrl,
   };
   if (imagePath) input.imagePath = imagePath;
+  if (videoUrl) input.videoUrl = videoUrl;
   if (entryState.alt) input.alt = entryState.alt;
-  return prepareEntry(input, config, new Date(entryState.published_at));
+  return prepareEntry(input, config, new Date(entryState.published_at), temporaryDirectory);
 }
 
 export async function retry(
@@ -442,19 +463,31 @@ export async function retry(
         `${platform} has status ${platformState.status}; only failed platforms can be retried.${guidance}`,
       );
     }
-    const imagePath = entryState.repository_media_path
+    const videoUrl = entryState.media_type === "mp4" ? entryState.media_url : undefined;
+    if (entryState.media_type === "mp4" && !videoUrl) {
+      throw new ValidationError(`Stored video URL not found for: ${slug}`);
+    }
+    const imagePath = entryState.media_type !== "mp4" && entryState.repository_media_path
       ? path.join(config.repositoryPath, entryState.repository_media_path)
       : undefined;
     if (imagePath && !(await pathExists(imagePath))) {
       throw new ValidationError(`Stored image not found: ${imagePath}`);
     }
+    temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-retry-"));
     const entry = await rebuildEntryForRetry(
       slug,
       entryState,
       imagePath,
+      videoUrl,
       config,
       options.forceXUrl ?? false,
+      temporaryDirectory,
     );
+    if (entry.media?.sha256 !== (entryState.media_sha256 ?? entryState.gif_sha256)) {
+      throw new ValidationError(
+        "Media content changed since the original publication; refusing an unsafe retry.",
+      );
+    }
     if (entry.payloadSha256[platform] !== entryState.payload_sha256[platform]) {
       throw new ValidationError(
         `${platform} payload changed since the original publication. Restore the original configuration before retrying.`,
@@ -466,8 +499,6 @@ export async function retry(
     };
     if (entryState.media_url) deploymentTarget.mediaUrl = entryState.media_url;
     await waitForDeployment(deploymentTarget, config);
-    temporaryDirectory = path.join(config.configDirectory, ".satomi", `retry-${process.pid}`);
-    await mkdir(temporaryDirectory, { recursive: false, mode: 0o700 });
     await publishPlatforms(entry, entryState, state, config, credentials, [platform], temporaryDirectory);
     await updatePublicSyndication(slug, state, config);
     const linkedAttempt = options.attemptId

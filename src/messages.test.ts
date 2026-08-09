@@ -20,6 +20,12 @@ const config = {
     reject_control_characters: true,
     require_matching_image_extension: true,
     require_animated_gif: true,
+    max_remote_video_mb: 200,
+    max_video_duration_seconds: 140,
+    max_video_width: 1280,
+    max_video_height: 1280,
+    max_video_frame_rate: 60,
+    video_download_timeout_seconds: 120,
   },
   destinations: {
     jekyll: true,
@@ -34,6 +40,7 @@ const config = {
       max_characters: 500,
       max_gif_mb: 16,
       max_png_mb: 16,
+      max_video_mb: 100,
       append_canonical_url: true,
       include_tags: true,
     },
@@ -41,6 +48,7 @@ const config = {
       max_characters: 300,
       max_gif_mb: 50,
       max_png_mb: 2,
+      max_video_mb: 100,
       append_canonical_url: true,
       include_tags: false,
     },
@@ -48,6 +56,7 @@ const config = {
       max_characters: 280,
       max_gif_mb: 15,
       max_png_mb: 5,
+      max_video_mb: 512,
       append_canonical_url: false,
       include_tags: true,
     },
@@ -55,6 +64,7 @@ const config = {
       max_characters: 1_024,
       max_gif_mb: 50,
       max_png_mb: 10,
+      max_video_mb: 20,
       append_canonical_url: true,
       include_tags: true,
     },
@@ -72,6 +82,7 @@ describe("platform messages", () => {
     expect(effectiveLimits(config, "png")).toEqual({ characters: 280, mediaMb: 2 });
     expect(effectiveLimits(config, "jpeg")).toEqual({ characters: 280, mediaMb: 2 });
     expect(effectiveLimits(config, "webp")).toEqual({ characters: 280, mediaMb: 2 });
+    expect(effectiveLimits(config, "mp4")).toEqual({ characters: 280, mediaMb: 20 });
   });
 
   it("allows a Jekyll-only publication when every optional destination is unchecked", () => {

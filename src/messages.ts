@@ -2,6 +2,7 @@ import path from "node:path";
 import twitterText from "twitter-text";
 import { ValidationError } from "./errors.js";
 import { inspectImage } from "./image.js";
+import { inspectRemoteVideo } from "./video.js";
 import type {
   DraftInput,
   MediaType,
@@ -60,7 +61,9 @@ export function effectiveLimits(config: ResolvedConfig, mediaType?: MediaType): 
   return {
     characters: Math.min(...platforms.map((platform) => platform.max_characters)),
     mediaMb:
-      mediaType === undefined || mediaType === "gif"
+      mediaType === "mp4"
+        ? Math.min(...platforms.map((platform) => platform.max_video_mb))
+        : mediaType === undefined || mediaType === "gif"
         ? Math.min(...platforms.map((platform) => platform.max_gif_mb))
         : Math.min(...platforms.map((platform) => platform.max_png_mb)),
   };
@@ -76,6 +79,7 @@ export async function prepareEntry(
   input: DraftInput,
   config: ResolvedConfig,
   now = new Date(),
+  temporaryDirectory?: string,
 ): Promise<PreparedEntry> {
   const text = input.text.trim();
   if (config.validation.reject_empty_text && text.length === 0) {
@@ -96,6 +100,9 @@ export async function prepareEntry(
   let media: PreparedMedia | undefined;
   let alt: string | undefined;
   let baseName: string;
+  if (input.imagePath && input.videoUrl) {
+    throw new ValidationError("--image and --video cannot be used together.");
+  }
   if (input.imagePath) {
     const imagePath = path.resolve(input.imagePath);
     const image = await inspectImage(
@@ -142,9 +149,39 @@ export async function prepareEntry(
       publicUrl: joinUrl(config.site.media_url, fileName),
     };
     if (image.frames !== undefined) media.frames = image.frames;
+  } else if (input.videoUrl) {
+    if (!temporaryDirectory) {
+      throw new ValidationError("A temporary directory is required to inspect a remote video.");
+    }
+    const videoLimits = effectiveLimits(config, "mp4");
+    const video = await inspectRemoteVideo(
+      input.videoUrl,
+      temporaryDirectory,
+      videoLimits.mediaMb * 1_000_000,
+      config,
+    );
+    alt = input.alt?.trim();
+    if (alt && CONTROL_CHARACTERS.test(alt)) {
+      throw new ValidationError("Alternative text contains unsupported control characters.");
+    }
+    const remoteName = path.posix.basename(new URL(video.publicUrl).pathname, ".mp4");
+    baseName = slugify(remoteName || deriveTitle(text));
+    media = {
+      sourcePath: video.sourcePath,
+      fileName: `${baseName}.mp4`,
+      type: "mp4",
+      mimeType: "video/mp4",
+      bytes: video.bytes,
+      width: video.width,
+      height: video.height,
+      durationSeconds: video.durationSeconds,
+      frameRate: video.frameRate,
+      sha256: video.sha256,
+      publicUrl: video.publicUrl,
+    };
   } else {
     if (input.alt?.trim()) {
-      throw new ValidationError("Alternative text cannot be used without an image.");
+      throw new ValidationError("Alternative text cannot be used without an image or video.");
     }
     baseName = slugify(deriveTitle(text));
   }
@@ -166,12 +203,12 @@ export async function prepareEntry(
     if (!config.destinations[platform]) continue;
     if (media && platformConfig.max_width && media.width > platformConfig.max_width) {
       throw new ValidationError(
-        `${platform} accepts at most ${platformConfig.max_width}px width; the image is ${media.width}px.`,
+        `${platform} accepts at most ${platformConfig.max_width}px width; the media is ${media.width}px.`,
       );
     }
     if (media && platformConfig.max_height && media.height > platformConfig.max_height) {
       throw new ValidationError(
-        `${platform} accepts at most ${platformConfig.max_height}px height; the image is ${media.height}px.`,
+        `${platform} accepts at most ${platformConfig.max_height}px height; the media is ${media.height}px.`,
       );
     }
     const payload = buildPlatformPayload(platform, text, tags, canonicalUrl, config);

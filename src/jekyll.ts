@@ -57,6 +57,18 @@ async function readEntries(repository: string, config: ResolvedConfig): Promise<
         orgSocial: syndicate.org_social !== false,
       };
       if (source.data.image) entry.image = String(source.data.image);
+      if (source.data.video) {
+        entry.video = String(source.data.video);
+        entry.videoType = "video/mp4";
+        const videoWidth = Number(source.data.video_width);
+        const videoHeight = Number(source.data.video_height);
+        const videoDuration = Number(source.data.video_duration);
+        const videoBytes = Number(source.data.video_bytes);
+        if (Number.isFinite(videoWidth)) entry.videoWidth = videoWidth;
+        if (Number.isFinite(videoHeight)) entry.videoHeight = videoHeight;
+        if (Number.isFinite(videoDuration)) entry.videoDurationSeconds = videoDuration;
+        if (Number.isFinite(videoBytes)) entry.videoBytes = videoBytes;
+      }
       if (source.data.alt) entry.alt = String(source.data.alt);
       return entry;
     }),
@@ -94,7 +106,7 @@ export async function stageSite(entry: PreparedEntry, config: ResolvedConfig): P
   }
   await writeGenerated(repository, postPath, renderPost(contentEntryFromPrepared(entry, config), config));
   generatedPaths.push(postPath);
-  if (entry.media) {
+  if (entry.media && entry.media.type !== "mp4") {
     const mediaPath = path.join(config.site.media_directory, entry.media.fileName);
     if (await pathExists(path.join(config.repositoryPath, mediaPath))) {
       throw new ValidationError(`Media target already exists: ${mediaPath}`);

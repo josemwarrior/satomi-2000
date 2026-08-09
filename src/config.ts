@@ -113,6 +113,12 @@ export const configSchema = z
       require_animated_gif: z.boolean().default(true),
       reject_empty_text: z.boolean().default(true),
       reject_control_characters: z.boolean().default(true),
+      max_remote_video_mb: z.number().positive().default(200),
+      max_video_duration_seconds: z.number().positive().default(140),
+      max_video_width: z.number().int().positive().default(1280),
+      max_video_height: z.number().int().positive().default(1280),
+      max_video_frame_rate: z.number().positive().default(60),
+      video_download_timeout_seconds: z.number().int().positive().default(120),
     }),
     jekyll: z.object({
       build_command: z.array(z.string().min(1)).min(1),
@@ -120,13 +126,16 @@ export const configSchema = z
     }),
     platforms: z.object({
       mastodon: basePlatformSchema.extend({
+        max_video_mb: z.number().positive().default(100),
         check_instance_limits: z.boolean().default(true),
       }),
       bluesky: basePlatformSchema.extend({
+        max_video_mb: z.number().positive().default(100),
         convert_gif_to_mp4: z.literal(true).default(true),
         video_timeout_seconds: z.number().int().positive().default(300),
       }),
       x: basePlatformSchema.extend({
+        max_video_mb: z.number().positive().default(512),
         username: z.string().min(1),
         oauth_callback_url: xOAuthCallbackUrl.default("http://127.0.0.1:3000/callback"),
         oauth_timeout_seconds: z.number().int().positive().default(180),
@@ -138,12 +147,14 @@ export const configSchema = z
         automatic_retry: z.literal(false).default(false),
       }),
       telegram: basePlatformSchema.extend({
+        max_video_mb: z.number().positive().default(20),
         worker_url: telegramWorkerUrl.optional(),
         timeout_seconds: z.number().int().positive().default(30),
       }).default({
         max_characters: 1_024,
         max_gif_mb: 50,
         max_png_mb: 10,
+        max_video_mb: 20,
         append_canonical_url: true,
         include_tags: true,
         upload_native_media: true,

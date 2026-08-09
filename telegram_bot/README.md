@@ -31,7 +31,9 @@ The publication payload contains the final Telegram text:
 ```
 
 `media` is optional. PNG and JPEG use `sendPhoto`, GIF uses `sendAnimation`,
-and WebP currently uses `sendDocument`.
+WebP uses `sendDocument`, and MP4 uses `sendVideo` with streaming enabled. MP4
+URLs must remain directly downloadable by Telegram and fit its remote-URL size
+limit.
 
 ## Local checks
 

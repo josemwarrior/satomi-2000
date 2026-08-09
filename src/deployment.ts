@@ -2,7 +2,7 @@ import { SatomiError } from "./errors.js";
 import type { PreparedEntry, ResolvedConfig } from "./types.js";
 import { sleep } from "./utils.js";
 
-async function isAvailable(url: string, expectedImage = false): Promise<boolean> {
+async function isAvailable(url: string, expectedMedia = false): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: "GET",
@@ -10,12 +10,20 @@ async function isAvailable(url: string, expectedImage = false): Promise<boolean>
       redirect: "follow",
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return false;
-    if (!expectedImage) return true;
+    if (!response.ok) {
+      await response.body?.cancel();
+      return false;
+    }
+    if (!expectedMedia) {
+      await response.body?.cancel();
+      return true;
+    }
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    return ["image/gif", "image/png", "image/jpeg", "image/webp"].some((mimeType) =>
+    const available = ["image/gif", "image/png", "image/jpeg", "image/webp", "video/mp4"].some((mimeType) =>
       contentType.includes(mimeType),
     );
+    await response.body?.cancel();
+    return available;
   } catch {
     return false;
   }

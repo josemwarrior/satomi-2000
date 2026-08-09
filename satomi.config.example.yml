@@ -58,6 +58,13 @@ validation:
   require_animated_gif: true
   reject_empty_text: true
   reject_control_characters: true
+  # MP4 compatibility profile checked with ffprobe after downloading the URL.
+  max_remote_video_mb: 200
+  max_video_duration_seconds: 140
+  max_video_width: 1280
+  max_video_height: 1280
+  max_video_frame_rate: 60
+  video_download_timeout_seconds: 120
 
 jekyll:
   build_command:
@@ -73,6 +80,7 @@ platforms:
     max_gif_mb: 16
     # Shared limit for PNG, JPEG, and WebP.
     max_png_mb: 16
+    max_video_mb: 100
     append_canonical_url: true
     include_tags: true
     upload_native_media: true
@@ -83,6 +91,7 @@ platforms:
     max_gif_mb: 50
     # Shared limit for PNG, JPEG, and WebP.
     max_png_mb: 2
+    max_video_mb: 100
     append_canonical_url: true
     include_tags: true
     upload_native_media: true
@@ -98,6 +107,7 @@ platforms:
     max_gif_mb: 15
     # Shared limit for PNG, JPEG, and WebP.
     max_png_mb: 5
+    max_video_mb: 512
     append_canonical_url: false
     include_tags: true
     upload_native_media: true
@@ -116,6 +126,8 @@ platforms:
     max_gif_mb: 50
     # Shared conservative limit for PNG, JPEG, and WebP.
     max_png_mb: 10
+    # Telegram downloads remote media URLs only up to 20 MB.
+    max_video_mb: 20
     append_canonical_url: true
     include_tags: true
     upload_native_media: true

@@ -6,6 +6,12 @@ export interface ContentEntry {
   title: string;
   date: string;
   image?: string;
+  video?: string;
+  videoType?: "video/mp4";
+  videoWidth?: number;
+  videoHeight?: number;
+  videoDurationSeconds?: number;
+  videoBytes?: number;
   alt?: string;
   tags: string[];
   language: string;
@@ -40,7 +46,18 @@ export function contentEntryFromPrepared(entry: PreparedEntry, config: ResolvedC
     text: entry.text,
     orgSocial: config.destinations.org_social,
   };
-  if (entry.media) result.image = `${config.site.media_url}/${entry.media.fileName}`;
+  if (entry.media?.type === "mp4") {
+    result.video = entry.media.publicUrl;
+    result.videoType = "video/mp4";
+    result.videoWidth = entry.media.width;
+    result.videoHeight = entry.media.height;
+    result.videoBytes = entry.media.bytes;
+    if (entry.media.durationSeconds !== undefined) {
+      result.videoDurationSeconds = entry.media.durationSeconds;
+    }
+  } else if (entry.media) {
+    result.image = entry.media.publicUrl;
+  }
   if (entry.alt) result.alt = entry.alt;
   return result;
 }
@@ -65,6 +82,14 @@ export function renderPost(entry: ContentEntry, config: ResolvedConfig): string 
     },
   };
   if (entry.image) frontMatter.image = entry.image;
+  if (entry.video) {
+    frontMatter.video = entry.video;
+    frontMatter.video_type = entry.videoType ?? "video/mp4";
+    frontMatter.video_width = entry.videoWidth;
+    frontMatter.video_height = entry.videoHeight;
+    frontMatter.video_duration = entry.videoDurationSeconds;
+    frontMatter.video_bytes = entry.videoBytes;
+  }
   if (entry.alt) frontMatter.alt = entry.alt;
   return matter.stringify(`${entry.text.trim()}\n`, frontMatter);
 }
@@ -98,6 +123,8 @@ export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig)
     if (entry.image) {
       const imageUrl = absoluteUrl(config, entry.image);
       post.push("", entry.alt ? `[[${imageUrl}][${entry.alt}]]` : `[[${imageUrl}]]`);
+    } else if (entry.video) {
+      post.push("", entry.alt ? `[[${entry.video}][${entry.alt}]]` : `[[${entry.video}]]`);
     }
     return post;
   });
@@ -112,7 +139,10 @@ export function renderRss(entries: ContentEntry[], config: ResolvedConfig): stri
       const image = entry.image
         ? `<p><img src="${xml(absoluteUrl(config, entry.image))}" alt="${xml(entry.alt ?? "")}"></p>`
         : "";
-      const description = `<p>${xml(entry.text)}</p>${image}`;
+      const video = entry.video
+        ? `<p><video controls preload="metadata"${entry.videoWidth ? ` width="${entry.videoWidth}"` : ""}${entry.videoHeight ? ` height="${entry.videoHeight}"` : ""}><source src="${xml(entry.video)}" type="video/mp4"><a href="${xml(entry.video)}">View video</a></video></p>`
+        : "";
+      const description = `<p>${xml(entry.text)}</p>${image}${video}`;
       return [
         "    <item>",
         `      <title>${xml(entry.title)}</title>`,
@@ -159,6 +189,18 @@ export function renderJsonFeed(entries: ContentEntry[], config: ResolvedConfig):
           language: entry.language,
         };
         if (entry.image) item.image = absoluteUrl(config, entry.image);
+        if (entry.video) {
+          item.attachments = [
+            {
+              url: entry.video,
+              mime_type: entry.videoType ?? "video/mp4",
+              ...(entry.videoBytes !== undefined ? { size_in_bytes: entry.videoBytes } : {}),
+              ...(entry.videoDurationSeconds !== undefined
+                ? { duration_in_seconds: entry.videoDurationSeconds }
+                : {}),
+            },
+          ];
+        }
         return item;
       }),
     },
