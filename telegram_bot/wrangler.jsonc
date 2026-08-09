@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "satomi-telegram",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-09",
+  "workers_dev": true,
+  "secrets": {
+    "required": [
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_CHANNEL_ID",
+      "TELEGRAM_GATEWAY_TOKEN"
+    ]
+  }
+}

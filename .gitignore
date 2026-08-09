@@ -10,6 +10,11 @@ satomi.config.yml
 .satomi/
 MICROBLOG_PIPELINE_SPEC.md
 
+# Cloudflare Worker local state and development secrets
+telegram_bot/.dev.vars*
+!telegram_bot/.dev.vars.example
+telegram_bot/.wrangler/
+
 # Editors and macOS
 .DS_Store
 *.swp

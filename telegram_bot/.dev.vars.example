@@ -1,0 +1,6 @@
+# Documentation only. Unit tests use mocks and do not require real secrets.
+# If the bot token must remain exclusively in Cloudflare, do not create a
+# local .dev.vars file with the production token.
+TELEGRAM_BOT_TOKEN=replace-with-a-development-token
+TELEGRAM_CHANNEL_ID=@replace_with_channel_username
+TELEGRAM_GATEWAY_TOKEN=replace-with-at-least-32-random-characters
