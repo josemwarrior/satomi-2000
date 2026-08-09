@@ -109,8 +109,24 @@ MASTODON_URL
 MASTODON_TOKEN
 BLUESKY_HANDLE
 BLUESKY_APP_PASSWORD
-X_ACCESS_TOKEN
+X_CLIENT_ID
+X_REFRESH_TOKEN
 ```
+
+For X, register an OAuth 2.0 **Native App** with the callback configured under
+`platforms.x.oauth_callback_url` (the default is
+`http://127.0.0.1:3000/callback`). Request the scopes `tweet.read`,
+`tweet.write`, `users.read`, `media.write`, and `offline.access`, then put the
+App's public Client ID in `X_CLIENT_ID`. Do not copy the app-only Bearer Token.
+
+`X_REFRESH_TOKEN` is managed by Satomi. When X is selected and no refresh token
+exists, the normal `post` or `validate` pipeline opens the browser, receives the
+local PKCE callback, and stores the refresh token in the mode-600 `.env` file.
+On later runs it exchanges that refresh token once, keeps the resulting access
+token only in memory, and persists a replacement refresh token when X returns
+one. No separate authentication command is required. Disabling X in the config
+or passing `-e x` skips all X credential loading, authorization, and refresh
+requests for that run.
 
 ## Usage
 
@@ -430,6 +446,12 @@ An animated GIF is converted to a silent H.264 MP4 with even dimensions and `yuv
 
 Satomi-2000 uses the official chunked media workflow (`INIT`, `APPEND`, `FINALIZE`, and `STATUS`) for an attached PNG, JPEG, WebP, or GIF and creates exactly one post. Supported image metadata is added to static-image uploads. Text-only posts skip media upload. A timeout or server error after the create request is stored as `unknown`; Satomi-2000 will not retry it. Reconcile the account manually first.
 
+X authentication is OAuth 2.0 Authorization Code with PKCE. The first selected
+pipeline run opens the authorization page and receives its callback on
+`127.0.0.1`; subsequent selected runs refresh once before preflight publication.
+The refresh token remains in the private `.env` file, while access tokens are
+never written to disk. `-e x` bypasses this process completely.
+
 X is selected in the example so all choices are visible. Uncheck it until credentials and cost controls are ready. API pricing and access rules can change, so review the developer console before leaving it selected. Cost estimates are configuration values, not hard-coded assumptions.
 
 Official references:
@@ -442,6 +464,7 @@ Official references:
 - [Mastodon media API](https://docs.joinmastodon.org/methods/media/)
 - [Mastodon supported attachment formats](https://docs.joinmastodon.org/user/posting/#attachments)
 - [Mastodon status API](https://docs.joinmastodon.org/methods/statuses/)
+- [X OAuth 2.0 Authorization Code Flow with PKCE](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code)
 - [X chunked media uploads](https://docs.x.com/x-api/media/quickstart/media-upload-chunked)
 - [X image specifications](https://docs.x.com/x-api/media/quickstart/best-practices#image-specifications-and-recommendations)
 - [X create post API](https://docs.x.com/x-api/posts/create-post)

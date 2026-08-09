@@ -90,6 +90,9 @@ platforms:
 
   x:
     username: your_username
+    # Must exactly match the callback registered for the Native App in X.
+    oauth_callback_url: http://127.0.0.1:3000/callback
+    oauth_timeout_seconds: 180
     max_characters: 280
     max_gif_mb: 15
     # Shared limit for PNG, JPEG, and WebP.

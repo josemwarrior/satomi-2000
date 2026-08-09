@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { ValidationError } from "./errors.js";
 import type { Credentials, PlatformName, ResolvedConfig } from "./types.js";
 import { pathExists, runCommand } from "./utils.js";
+import { obtainXAccessToken } from "./x-auth.js";
 
 async function loadEnvironment(config: ResolvedConfig): Promise<void> {
   if (!(await pathExists(config.envPath))) return;
@@ -30,13 +31,17 @@ async function keychainValue(config: ResolvedConfig, name: string): Promise<stri
 }
 
 async function value(config: ResolvedConfig, name: string): Promise<string> {
-  const found = process.env[name]?.trim() || (await keychainValue(config, name));
+  const found = await optionalValue(config, name);
   if (!found) {
     throw new ValidationError(
       `Missing credential ${name}. Set it in the environment, a mode-600 .env file, or macOS Keychain service ${config.credentials.keychain_service_prefix}:${name}.`,
     );
   }
   return found;
+}
+
+async function optionalValue(config: ResolvedConfig, name: string): Promise<string | undefined> {
+  return process.env[name]?.trim() || (await keychainValue(config, name));
 }
 
 export async function loadCredentials(
@@ -62,7 +67,11 @@ export async function loadCredentials(
         appPassword: await value(config, "BLUESKY_APP_PASSWORD"),
       };
     } else {
-      credentials.x = { accessToken: await value(config, "X_ACCESS_TOKEN") };
+      const clientId = await value(config, "X_CLIENT_ID");
+      const refreshToken = await optionalValue(config, "X_REFRESH_TOKEN");
+      credentials.x = {
+        accessToken: await obtainXAccessToken(config, clientId, refreshToken),
+      };
     }
   }
   return credentials;

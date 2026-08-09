@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import {
   emptyState,
   ensureBlueskyRecordKey,
   loadState,
+  PublishLock,
   saveState,
 } from "./state.js";
 import type { EntryState, ResolvedConfig } from "./types.js";
@@ -60,5 +61,43 @@ describe("Bluesky record key persistence", () => {
     expect(first).toMatch(/^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/);
     expect(second).toBe(first);
     expect(entry.platforms.bluesky.rkey).toBe(first);
+  });
+});
+
+describe("publication lock", () => {
+  it("recovers a lock owned by a process that no longer exists", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "satomi-stale-lock-"));
+    temporaryPaths.push(root);
+    const lockPath = path.join(root, ".satomi", "publish.lock");
+    await mkdir(lockPath, { recursive: true, mode: 0o700 });
+    await writeFile(
+      path.join(lockPath, "owner.json"),
+      `${JSON.stringify({ pid: 999_999_999, started_at: "2026-08-09T00:00:00.000Z" })}\n`,
+      { mode: 0o600 },
+    );
+
+    const lock = new PublishLock(lockPath);
+    await lock.acquire();
+    const owner = JSON.parse(await readFile(path.join(lockPath, "owner.json"), "utf8")) as {
+      pid: number;
+    };
+    expect(owner.pid).toBe(process.pid);
+    await lock.release();
+  });
+
+  it("does not replace a lock owned by a live process", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "satomi-live-lock-"));
+    temporaryPaths.push(root);
+    const lockPath = path.join(root, ".satomi", "publish.lock");
+    await mkdir(lockPath, { recursive: true, mode: 0o700 });
+    await writeFile(
+      path.join(lockPath, "owner.json"),
+      `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`,
+      { mode: 0o600 },
+    );
+
+    await expect(new PublishLock(lockPath).acquire()).rejects.toThrow(
+      `Another Satomi publication is already running (process ${process.pid}).`,
+    );
   });
 });

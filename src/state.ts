@@ -166,29 +166,52 @@ export class PublishLock {
 
   constructor(private readonly lockPath: string) {}
 
+  private processIsAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
+  }
+
+  private async existingOwner(): Promise<number | undefined> {
+    try {
+      const data = JSON.parse(
+        await readFile(path.join(this.lockPath, "owner.json"), "utf8"),
+      ) as { pid?: unknown };
+      return typeof data.pid === "number" && Number.isInteger(data.pid) && data.pid > 0
+        ? data.pid
+        : undefined;
+    } catch {
+      // A lock can exist briefly before its owner file is written.
+      return undefined;
+    }
+  }
+
   async acquire(): Promise<void> {
     await mkdir(path.dirname(this.lockPath), { recursive: true, mode: 0o700 });
-    try {
-      await mkdir(this.lockPath, { recursive: false, mode: 0o700 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      let owner = "another process";
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const data = JSON.parse(
-          await readFile(path.join(this.lockPath, "owner.json"), "utf8"),
-        ) as { pid?: number };
-        if (data.pid) owner = `process ${data.pid}`;
-      } catch {
-        // A lock can exist before its owner file is written.
+        await mkdir(this.lockPath, { recursive: false, mode: 0o700 });
+        this.acquired = true;
+        await writeFile(
+          path.join(this.lockPath, "owner.json"),
+          `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`,
+          { mode: 0o600 },
+        );
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const ownerPid = await this.existingOwner();
+        if (attempt === 0 && ownerPid && !this.processIsAlive(ownerPid)) {
+          await rm(this.lockPath, { recursive: true, force: true });
+          continue;
+        }
+        const owner = ownerPid ? `process ${ownerPid}` : "another process";
+        throw new SatomiError(`Another Satomi publication is already running (${owner}).`);
       }
-      throw new SatomiError(`Another Satomi publication is already running (${owner}).`);
     }
-    this.acquired = true;
-    await writeFile(
-      path.join(this.lockPath, "owner.json"),
-      `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`,
-      { mode: 0o600 },
-    );
   }
 
   async release(): Promise<void> {

@@ -41,6 +41,8 @@ describe("private configuration", () => {
       bluesky: true,
       x: true,
     });
+    expect(config.platforms.x.oauth_callback_url).toBe("http://127.0.0.1:3000/callback");
+    expect(config.platforms.x.oauth_timeout_seconds).toBe(180);
     expect(config.org_social).toEqual({
       title: "GameName on Org Social",
       nick: "GameName",

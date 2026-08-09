@@ -27,6 +27,20 @@ const basePlatformSchema = z.object({
   max_height: z.number().int().positive().optional(),
 });
 
+const xOAuthCallbackUrl = z.url().refine((value) => {
+  const url = new URL(value);
+  return (
+    url.protocol === "http:" &&
+    url.hostname === "127.0.0.1" &&
+    url.port.length > 0 &&
+    url.pathname.length > 1 &&
+    !url.search &&
+    !url.hash
+  );
+}, {
+  message: "must be a local URL such as http://127.0.0.1:3000/callback",
+});
+
 export const configSchema = z
   .object({
     version: z.literal(1),
@@ -99,6 +113,8 @@ export const configSchema = z
       }),
       x: basePlatformSchema.extend({
         username: z.string().min(1),
+        oauth_callback_url: xOAuthCallbackUrl.default("http://127.0.0.1:3000/callback"),
+        oauth_timeout_seconds: z.number().int().positive().default(180),
         max_posts_per_run: z.literal(1).default(1),
         max_posts_per_day: z.number().int().positive(),
         max_estimated_cost_usd_per_run: z.number().nonnegative(),
