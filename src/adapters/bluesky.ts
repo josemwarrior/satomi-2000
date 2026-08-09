@@ -15,6 +15,7 @@ export async function publishBluesky(
   mp4Path: string | undefined,
   config: ResolvedConfig,
   credentials: BlueskyCredentials,
+  recordKey: string,
 ): Promise<PlatformResult> {
   const agent = new AtpAgent({ service: "https://bsky.social" });
   await agent.login({ identifier: credentials.handle, password: credentials.appPassword });
@@ -97,7 +98,7 @@ export async function publishBluesky(
     created = await agent.com.atproto.repo.createRecord({
       repo: agent.session.did,
       collection: "app.bsky.feed.post",
-      rkey: entry.slug,
+      rkey: recordKey,
       record,
     });
   } catch (createError) {
@@ -105,13 +106,13 @@ export async function publishBluesky(
       const existing = await agent.com.atproto.repo.getRecord({
         repo: agent.session.did,
         collection: "app.bsky.feed.post",
-        rkey: entry.slug,
+        rkey: recordKey,
       });
       const value = existing.data.value as { text?: unknown };
       if (value.text !== richText.text) throw createError;
       const result: PlatformResult = {
         uri: existing.data.uri,
-        url: `https://bsky.app/profile/${encodeURIComponent(credentials.handle)}/post/${entry.slug}`,
+        url: `https://bsky.app/profile/${encodeURIComponent(credentials.handle)}/post/${recordKey}`,
       };
       if (existing.data.cid) result.cid = existing.data.cid;
       return result;
@@ -122,6 +123,6 @@ export async function publishBluesky(
   return {
     uri: created.data.uri,
     cid: created.data.cid,
-    url: `https://bsky.app/profile/${encodeURIComponent(credentials.handle)}/post/${entry.slug}`,
+    url: `https://bsky.app/profile/${encodeURIComponent(credentials.handle)}/post/${recordKey}`,
   };
 }

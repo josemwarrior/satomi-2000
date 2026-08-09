@@ -75,6 +75,7 @@ export interface PreparedEntry {
 export interface PlatformState {
   status: PlatformStatus;
   attempted_at?: string;
+  rkey?: string;
   id?: string;
   uri?: string;
   cid?: string;

@@ -5,6 +5,7 @@ import { Command, Option } from "commander";
 import { DEFAULT_CONFIG_FILE, loadConfig } from "./config.js";
 import { applyDestinationExclusions, EXCLUSION_CODES_HELP } from "./destinations.js";
 import { SatomiError, ValidationError } from "./errors.js";
+import { publicationCompletionMessage } from "./summary.js";
 import {
   preview,
   publicationHistory,
@@ -92,7 +93,7 @@ async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
 }
 
 function printSummary(summary: PublishSummary): void {
-  console.log("Publication completed.");
+  console.log(publicationCompletionMessage(summary));
   if (summary.attemptId) console.log(`Attempt:  ${summary.attemptId}`);
   console.log(`Web:      ${summary.web}`);
   if (summary.orgSocial) console.log(`Org Social: ${summary.orgSocial}`);
@@ -293,8 +294,17 @@ program
 program.addHelpText(
   "after",
   `
+Post options:
+  -t, --text <text>      Post text
+  -i, --image <file>     Optional PNG, JPEG, WebP, or animated GIF
+  -a, --alt <text>       Optional alternative text for the image
+  -e, --exclude <codes>  Exclude destinations for this run
+  --force-x              Authorize an X payload containing a URL
+
 Examples:
   $ satomi-2000 post -t "A text-only update."
+  $ satomi-2000 post -t "Animation update." -i game.gif
+  $ satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
   $ satomi-2000 post -t "Skip Telegram and X." -e tx
   $ satomi-2000 history
   $ satomi-2000 post --help

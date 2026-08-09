@@ -24,6 +24,7 @@ import { prepareEntry, xPayloadContainsUrl } from "./messages.js";
 import {
   assertNotDuplicate,
   createPublicationAttempt,
+  ensureBlueskyRecordKey,
   loadState,
   makeEntryState,
   markAttempt,
@@ -152,6 +153,7 @@ async function publishOne(
   config: ResolvedConfig,
   credentials: Credentials,
   temporaryDirectory: string,
+  blueskyRecordKey?: string,
 ): Promise<PlatformResult> {
   if (platform === "mastodon") {
     if (!credentials.mastodon) throw new ValidationError("Mastodon credentials were not loaded.");
@@ -159,10 +161,11 @@ async function publishOne(
   }
   if (platform === "bluesky") {
     if (!credentials.bluesky) throw new ValidationError("Bluesky credentials were not loaded.");
+    if (!blueskyRecordKey) throw new ValidationError("Bluesky record key was not prepared.");
     const mp4 = entry.media?.type === "gif"
       ? await convertGifToMp4(entry, temporaryDirectory)
       : undefined;
-    return await publishBluesky(entry, mp4, config, credentials.bluesky);
+    return await publishBluesky(entry, mp4, config, credentials.bluesky, blueskyRecordKey);
   }
   if (!credentials.x) throw new ValidationError("X credentials were not loaded.");
   return await publishX(entry, config, credentials.x);
@@ -178,11 +181,22 @@ async function publishPlatforms(
   temporaryDirectory: string,
 ): Promise<void> {
   for (const platform of platforms) {
+    const blueskyRecordKey = platform === "bluesky"
+      ? ensureBlueskyRecordKey(entryState)
+      : undefined;
     markAttempt(entryState, platform);
     await saveState(config, state);
     try {
-      const result = await publishOne(platform, entry, config, credentials, temporaryDirectory);
+      const result = await publishOne(
+        platform,
+        entry,
+        config,
+        credentials,
+        temporaryDirectory,
+        blueskyRecordKey,
+      );
       entryState.platforms[platform] = {
+        ...entryState.platforms[platform],
         status: "published",
         attempted_at: entryState.platforms[platform].attempted_at ?? new Date().toISOString(),
         ...result,

@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { TID } from "@atproto/common-web";
 import { SatomiError, ValidationError } from "./errors.js";
 import type {
   DraftInput,
@@ -136,6 +137,14 @@ export function markAttempt(entry: EntryState, platform: PlatformName): void {
     status: "pending",
     attempted_at: new Date().toISOString(),
   };
+}
+
+export function ensureBlueskyRecordKey(entry: EntryState): string {
+  const existing = entry.platforms.bluesky.rkey;
+  if (existing) return existing;
+  const recordKey = TID.nextStr();
+  entry.platforms.bluesky.rkey = recordKey;
+  return recordKey;
 }
 
 export function markFailed(

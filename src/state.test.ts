@@ -5,10 +5,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPublicationAttempt,
   emptyState,
+  ensureBlueskyRecordKey,
   loadState,
   saveState,
 } from "./state.js";
-import type { ResolvedConfig } from "./types.js";
+import type { EntryState, ResolvedConfig } from "./types.js";
 
 const temporaryPaths: string[] = [];
 
@@ -40,5 +41,24 @@ describe("publication attempt persistence", () => {
     const legacy = { version: 1 as const, entries: {} };
     await saveState(config, legacy);
     expect((await loadState(config)).attempts).toEqual({});
+  });
+});
+
+describe("Bluesky record key persistence", () => {
+  it("assigns one valid TID and reuses it for retries", () => {
+    const entry = {
+      platforms: {
+        mastodon: { status: "not_started" },
+        bluesky: { status: "failed" },
+        x: { status: "not_started" },
+      },
+    } as EntryState;
+
+    const first = ensureBlueskyRecordKey(entry);
+    const second = ensureBlueskyRecordKey(entry);
+
+    expect(first).toMatch(/^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/);
+    expect(second).toBe(first);
+    expect(entry.platforms.bluesky.rkey).toBe(first);
   });
 });

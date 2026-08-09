@@ -175,6 +175,19 @@ Other commands:
 Run `./satomi-2000 --help` for the command overview, or
 `./satomi-2000 post --help` for all publication options.
 
+The usual forms are:
+
+```bash
+# Text only
+./satomi-2000 post -t "A text-only update."
+
+# Text and image
+./satomi-2000 post -t "Animation update." -i game.gif
+
+# Text, image, and optional alternative text
+./satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
+```
+
 ### Per-run destination exclusions
 
 Without `--exclude`/`-e`, Satomi uses the destinations checked in
@@ -411,7 +424,7 @@ Satomi-2000 optionally reads the instance configuration, verifies its advertised
 
 ### Bluesky
 
-An animated GIF is converted to a silent H.264 MP4 with even dimensions and `yuv420p`, then published as `app.bsky.embed.video`. PNG, JPEG, and WebP are uploaded directly with their real MIME type as `app.bsky.embed.images`; they are never converted to MP4. Text-only posts have no embed. All variants use the same deterministic record key and rich-text facet handling.
+An animated GIF is converted to a silent H.264 MP4 with even dimensions and `yuv420p`, then published as `app.bsky.embed.video`. PNG, JPEG, and WebP are uploaded directly with their real MIME type as `app.bsky.embed.images`; they are never converted to MP4. Text-only posts have no embed. All variants use a persisted AT Protocol TID record key for safe retries and the same rich-text facet handling.
 
 ### X
 
