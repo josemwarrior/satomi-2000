@@ -44,6 +44,50 @@ describe("X URL cost authorization", () => {
     expect(warning).toHaveBeenCalledWith(expect.stringContaining("higher configured cost"));
     warning.mockRestore();
   });
+
+  it("does not count an explicitly failed X attempt against the daily post limit", () => {
+    const attemptedAt = new Date().toISOString();
+    const state = emptyState();
+    state.entries = {
+      published: {
+        platforms: {
+          x: { status: "published", attempted_at: attemptedAt },
+        },
+      },
+      failed: {
+        platforms: {
+          x: { status: "failed", attempted_at: attemptedAt },
+        },
+      },
+    } as typeof state.entries;
+    const entry = {
+      platformPayloads: { x: "A safe retry" },
+      forceXUrl: false,
+    } as PreparedEntry;
+    expect(() => validateXGuardrails(entry, state, config)).not.toThrow();
+  });
+
+  it("counts published and ambiguous X attempts against the daily post limit", () => {
+    const attemptedAt = new Date().toISOString();
+    const state = emptyState();
+    state.entries = {
+      published: {
+        platforms: {
+          x: { status: "published", attempted_at: attemptedAt },
+        },
+      },
+      unknown: {
+        platforms: {
+          x: { status: "unknown", attempted_at: attemptedAt },
+        },
+      },
+    } as typeof state.entries;
+    const entry = {
+      platformPayloads: { x: "A third post" },
+      forceXUrl: false,
+    } as PreparedEntry;
+    expect(() => validateXGuardrails(entry, state, config)).toThrow(/local X limit/);
+  });
 });
 
 describe("conditional FFmpeg requirement", () => {

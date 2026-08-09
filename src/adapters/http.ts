@@ -10,7 +10,15 @@ export async function responseJson<T>(response: Response, action: string): Promi
   }
   if (!response.ok) {
     const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-    const detail = record.error ?? record.detail ?? record.title ?? response.statusText;
+    const nested = Array.isArray(record.errors) && record.errors[0] && typeof record.errors[0] === "object"
+      ? record.errors[0] as Record<string, unknown>
+      : undefined;
+    const nestedDetail = nested
+      ? [nested.detail, nested.parameter ? `parameter=${String(nested.parameter)}` : undefined]
+          .filter(Boolean)
+          .join("; ")
+      : undefined;
+    const detail = record.error ?? record.detail ?? nestedDetail ?? record.title ?? response.statusText;
     throw new SatomiError(`${action} failed (${response.status}): ${String(detail).slice(0, 300)}`);
   }
   return body as T;

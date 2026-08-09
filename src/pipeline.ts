@@ -113,8 +113,13 @@ export function validateXGuardrails(
   }
   const today = localDate(new Date().toISOString(), config.content.timezone);
   const attemptsToday = Object.values(state.entries).filter((candidate) => {
-    const attempt = candidate.platforms.x.attempted_at;
-    return attempt && localDate(attempt, config.content.timezone) === today;
+    const xState = candidate.platforms.x;
+    return (
+      xState.status !== "failed" &&
+      xState.status !== "not_started" &&
+      xState.attempted_at !== undefined &&
+      localDate(xState.attempted_at, config.content.timezone) === today
+    );
   }).length;
   if (attemptsToday >= x.max_posts_per_day) {
     throw new ValidationError(`The local X limit of ${x.max_posts_per_day} posts per day was reached.`);

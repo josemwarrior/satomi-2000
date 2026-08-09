@@ -468,7 +468,12 @@ An animated GIF is converted to a silent H.264 MP4 with even dimensions and `yuv
 
 ### X
 
-Satomi-2000 uses the official chunked media workflow (`INIT`, `APPEND`, `FINALIZE`, and `STATUS`) for an attached PNG, JPEG, WebP, or GIF and creates exactly one post. Supported image metadata is added to static-image uploads. Text-only posts skip media upload. A timeout or server error after the create request is stored as `unknown`; Satomi-2000 will not retry it. Reconcile the account manually first.
+Satomi-2000 uses X's direct v2 media upload for PNG, JPEG, and WebP, and the
+v2 initialize/append/finalize workflow for animated GIFs. It then creates
+exactly one post. Supported image metadata is added to static-image uploads.
+Text-only posts skip media upload. A timeout or server error after the create
+request is stored as `unknown`; Satomi-2000 will not retry it. Reconcile the
+account manually first.
 
 X authentication is OAuth 2.0 Authorization Code with PKCE. The first selected
 pipeline run opens the authorization page and receives its callback on

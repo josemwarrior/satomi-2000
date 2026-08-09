@@ -67,8 +67,6 @@ describe("X media capabilities", () => {
   it.each(["png", "jpeg", "webp"] as const)("uses alt metadata for %s images", async (type) => {
     const responses = [
       json({ data: { id: "media-1" } }),
-      new Response(null, { status: 204 }),
-      json({ data: { id: "media-1" } }),
       json({ data: { id: "media-1" } }),
       json({ data: { id: "post-1" } }),
     ];
@@ -76,7 +74,16 @@ describe("X media capabilities", () => {
     vi.stubGlobal("fetch", fetchMock);
     await publishX(await mediaEntry(type), config, credentials);
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls[0]).toBe("https://api.x.com/2/media/upload");
     expect(urls).toContain("https://api.x.com/2/media/metadata");
+    const upload = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(upload.headers).toMatchObject({ "Content-Type": "application/json" });
+    expect(JSON.parse(String(upload.body))).toMatchObject({
+      media: Buffer.from("test-media").toString("base64"),
+      media_category: "tweet_image",
+      media_type: type === "jpeg" ? "image/jpeg" : `image/${type}`,
+      shared: false,
+    });
   });
 
   it("does not send image-only alt metadata for an animated GIF", async () => {
@@ -90,6 +97,15 @@ describe("X media capabilities", () => {
     vi.stubGlobal("fetch", fetchMock);
     await publishX(await mediaEntry("gif"), config, credentials);
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls).toContain("https://api.x.com/2/media/upload/initialize");
+    expect(urls).toContain("https://api.x.com/2/media/upload/media-2/append");
+    expect(urls).toContain("https://api.x.com/2/media/upload/media-2/finalize");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      media_type: "image/gif",
+      total_bytes: 10,
+      media_category: "tweet_gif",
+      shared: false,
+    });
     expect(urls).not.toContain("https://api.x.com/2/media/metadata");
   });
 });

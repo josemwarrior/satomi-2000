@@ -19,72 +19,110 @@ interface MediaData {
   };
 }
 
-async function uploadMedia(entry: PreparedEntry, token: string): Promise<string> {
-  if (!entry.media) throw new SatomiError("X media upload requires an image attachment.");
-  const headers = { ...authorization(token), "User-Agent": "satomi/0.1" };
-  const init = new FormData();
-  init.append("command", "INIT");
-  init.append("media_type", entry.media.mimeType);
-  init.append("total_bytes", String(entry.media.bytes));
-  init.append("media_category", entry.media.type === "gif" ? "tweet_gif" : "tweet_image");
-  const initResponse = await fetch("https://api.x.com/2/media/upload", {
-    method: "POST",
-    headers,
-    body: init,
-    signal: AbortSignal.timeout(30_000),
-  });
-  const initialized = await responseJson<MediaData>(initResponse, "X media initialization");
-  const mediaId = initialized.data.id;
+const MEDIA_UPLOAD_URL = "https://api.x.com/2/media/upload";
 
-  const image = new Uint8Array(await readFile(entry.media.sourcePath));
-  const chunkSize = 4 * 1024 * 1024;
-  for (let offset = 0, segment = 0; offset < image.length; offset += chunkSize, segment += 1) {
-    const append = new FormData();
-    append.append("command", "APPEND");
-    append.append("media_id", mediaId);
-    append.append("segment_index", String(segment));
-    append.append(
-      "media",
-      new Blob([image.slice(offset, offset + chunkSize)], { type: "application/octet-stream" }),
-      `${entry.slug}.${segment}.part`,
-    );
-    const appendResponse = await fetch("https://api.x.com/2/media/upload", {
-      method: "POST",
-      headers,
-      body: append,
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!appendResponse.ok) await responseJson(appendResponse, `X media segment ${segment}`);
-  }
-
-  const finalize = new FormData();
-  finalize.append("command", "FINALIZE");
-  finalize.append("media_id", mediaId);
-  const finalizeResponse = await fetch("https://api.x.com/2/media/upload", {
-    method: "POST",
-    headers,
-    body: finalize,
-    signal: AbortSignal.timeout(30_000),
-  });
-  let finalized = await responseJson<MediaData>(finalizeResponse, "X media finalization");
-  while (["pending", "in_progress"].includes(finalized.data.processing_info?.state ?? "")) {
-    await sleep((finalized.data.processing_info?.check_after_secs ?? 1) * 1_000);
-    const statusUrl = new URL("https://api.x.com/2/media/upload");
-    statusUrl.searchParams.set("command", "STATUS");
+async function waitForMediaProcessing(
+  initial: MediaData,
+  mediaId: string,
+  headers: Record<string, string>,
+): Promise<void> {
+  let media = initial;
+  while (["pending", "in_progress"].includes(media.data.processing_info?.state ?? "")) {
+    await sleep((media.data.processing_info?.check_after_secs ?? 1) * 1_000);
+    const statusUrl = new URL(MEDIA_UPLOAD_URL);
     statusUrl.searchParams.set("media_id", mediaId);
     const statusResponse = await fetch(statusUrl, {
       headers,
       signal: AbortSignal.timeout(30_000),
     });
-    finalized = await responseJson<MediaData>(statusResponse, "X media processing");
+    media = await responseJson<MediaData>(statusResponse, "X media processing status");
   }
-  if (finalized.data.processing_info?.state === "failed") {
+  if (media.data.processing_info?.state === "failed") {
     throw new SatomiError(
-      `X media processing failed: ${finalized.data.processing_info.error?.message ?? "unknown error"}`,
+      `X media processing failed: ${media.data.processing_info.error?.message ?? "unknown error"}`,
     );
   }
+}
 
+async function uploadStaticImage(entry: PreparedEntry, token: string): Promise<string> {
+  if (!entry.media) throw new SatomiError("X media upload requires an image attachment.");
+  const headers = { ...authorization(token), "User-Agent": "satomi/0.1" };
+  const image = await readFile(entry.media.sourcePath);
+  const uploadResponse = await fetch(MEDIA_UPLOAD_URL, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      media: image.toString("base64"),
+      media_category: "tweet_image",
+      media_type: entry.media.mimeType,
+      shared: false,
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const uploaded = await responseJson<MediaData>(uploadResponse, "X image upload");
+  await waitForMediaProcessing(uploaded, uploaded.data.id, headers);
+  return uploaded.data.id;
+}
+
+async function uploadAnimatedGif(entry: PreparedEntry, token: string): Promise<string> {
+  if (!entry.media) throw new SatomiError("X media upload requires an image attachment.");
+  const headers = { ...authorization(token), "User-Agent": "satomi/0.1" };
+  const initResponse = await fetch(`${MEDIA_UPLOAD_URL}/initialize`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      media_type: entry.media.mimeType,
+      total_bytes: entry.media.bytes,
+      media_category: "tweet_gif",
+      shared: false,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const initialized = await responseJson<MediaData>(initResponse, "X media initialization");
+  const mediaId = initialized.data.id;
+
+  const image = await readFile(entry.media.sourcePath);
+  const chunkSize = 4 * 1024 * 1024;
+  for (let offset = 0, segment = 0; offset < image.length; offset += chunkSize, segment += 1) {
+    const append = new FormData();
+    append.append("segment_index", String(segment));
+    append.append(
+      "media",
+      new Blob([image.subarray(offset, offset + chunkSize)], { type: "application/octet-stream" }),
+      `${entry.slug}.${segment}.part`,
+    );
+    const appendResponse = await fetch(
+      `${MEDIA_UPLOAD_URL}/${encodeURIComponent(mediaId)}/append`,
+      {
+        method: "POST",
+        headers,
+        body: append,
+        signal: AbortSignal.timeout(60_000),
+      },
+    );
+    if (!appendResponse.ok) await responseJson(appendResponse, `X media segment ${segment}`);
+  }
+
+  const finalizeResponse = await fetch(
+    `${MEDIA_UPLOAD_URL}/${encodeURIComponent(mediaId)}/finalize`,
+    {
+      method: "POST",
+      headers,
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const finalized = await responseJson<MediaData>(finalizeResponse, "X media finalization");
+  await waitForMediaProcessing(finalized, mediaId, headers);
+  return mediaId;
+}
+
+async function uploadMedia(entry: PreparedEntry, token: string): Promise<string> {
+  if (!entry.media) throw new SatomiError("X media upload requires an image attachment.");
+  const mediaId = entry.media.type === "gif"
+    ? await uploadAnimatedGif(entry, token)
+    : await uploadStaticImage(entry, token);
   if (entry.media.type !== "gif" && entry.alt) {
+    const headers = { ...authorization(token), "User-Agent": "satomi/0.1" };
     const metadataResponse = await fetch("https://api.x.com/2/media/metadata", {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
