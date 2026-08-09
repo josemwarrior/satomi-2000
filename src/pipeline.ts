@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { AmbiguousPublishError, ValidationError } from "./errors.js";
+import { AmbiguousPublishError, SatomiError, ValidationError } from "./errors.js";
 import { loadCredentials } from "./credentials.js";
 import { waitForDeployment } from "./deployment.js";
 import {
@@ -12,8 +12,10 @@ import {
 } from "./jekyll.js";
 import {
   assertGeneratedTargetsClean,
+  commitLocalChanges,
   commitGeneratedFiles,
   commitMetadataFile,
+  listWorktreeChanges,
   pushBranch,
   validateGitRepository,
 } from "./git.js";
@@ -21,12 +23,15 @@ import { convertGifToMp4 } from "./media.js";
 import { prepareEntry, xPayloadContainsUrl } from "./messages.js";
 import {
   assertNotDuplicate,
+  createPublicationAttempt,
   loadState,
   makeEntryState,
   markAttempt,
   markFailed,
   PublishLock,
+  restartPublicationAttempt,
   saveState,
+  updatePublicationAttempt,
 } from "./state.js";
 import { renderSyndicationData } from "./templates.js";
 import type {
@@ -35,15 +40,20 @@ import type {
   EntryState,
   PlatformName,
   PlatformResult,
+  PlatformState,
   PreparedEntry,
+  PublicationAttempt,
+  PublicationHistoryRow,
   PublicationState,
   PublishSummary,
   ResolvedConfig,
 } from "./types.js";
 import {
   commandExists,
+  errorMessage,
   localDate,
   pathExists,
+  sanitizeError,
   writeTextAtomic,
 } from "./utils.js";
 import { publishBluesky } from "./adapters/bluesky.js";
@@ -214,17 +224,50 @@ export async function validateDraft(input: DraftInput, config: ResolvedConfig): 
 export async function publish(
   obtainInput: () => Promise<DraftInput>,
   config: ResolvedConfig,
+  options: { attemptId?: string } = {},
 ): Promise<PublishSummary> {
   const lock = new PublishLock(config.lockPath);
   await lock.acquire();
   let staged: StagedSite | undefined;
+  let state: PublicationState | undefined;
+  let publicationAttempt: PublicationAttempt | undefined;
+  let canonicalCommitted = false;
   try {
-    const input = await obtainInput();
+    const suppliedInput = await obtainInput();
+    const input: DraftInput = { ...suppliedInput };
+    if (suppliedInput.imagePath) input.imagePath = path.resolve(suppliedInput.imagePath);
+    state = await loadState(config);
+    if (options.attemptId) {
+      publicationAttempt = state.attempts?.[options.attemptId];
+      if (!publicationAttempt) {
+        throw new ValidationError(`No publication attempt exists for ID: ${options.attemptId}`);
+      }
+      publicationAttempt.draft = input;
+      restartPublicationAttempt(publicationAttempt);
+    } else {
+      publicationAttempt = createPublicationAttempt(state, input);
+    }
+    await saveState(config, state);
+
+    updatePublicationAttempt(publicationAttempt, "prepare");
+    await saveState(config, state);
     const entry = await prepareEntry(input, config);
-    const state = await loadState(config);
+    publicationAttempt.slug = entry.slug;
+    publicationAttempt.draft = {
+      ...input,
+      slug: entry.slug,
+      title: entry.title,
+      tags: entry.tags,
+    };
+    await saveState(config, state);
     assertNotDuplicate(state, entry);
+
+    updatePublicationAttempt(publicationAttempt, "preflight");
+    await saveState(config, state);
     const credentials = await preflight(entry, config, state);
 
+    updatePublicationAttempt(publicationAttempt, "staging");
+    await saveState(config, state);
     staged = await stageSite(entry, config);
     await assertGeneratedTargetsClean(
       config.state.publish_syndication_data
@@ -233,21 +276,45 @@ export async function publish(
       config,
     );
     await runJekyllBuild(staged.repository, config);
+
+    updatePublicationAttempt(publicationAttempt, "commit");
+    await saveState(config, state);
     await applyStagedFiles(staged, config);
     await commitGeneratedFiles(staged.generatedPaths, entry.slug, config);
+    canonicalCommitted = true;
 
     const entryState = makeEntryState(entry, config);
     state.entries[entry.slug] = entryState;
+    updatePublicationAttempt(publicationAttempt, "push");
     await saveState(config, state);
     await pushBranch(config);
-    if (config.git.push) await waitForDeployment(entry, config);
+    if (config.git.push) {
+      updatePublicationAttempt(publicationAttempt, "deployment");
+      await saveState(config, state);
+      await waitForDeployment(entry, config);
+    }
 
     const platforms = (["mastodon", "bluesky", "x"] as PlatformName[]).filter(
       (name) => config.destinations[name],
     );
+    updatePublicationAttempt(publicationAttempt, "platforms");
+    await saveState(config, state);
     await publishPlatforms(entry, entryState, state, config, credentials, platforms, staged.root);
+    updatePublicationAttempt(publicationAttempt, "syndication");
+    await saveState(config, state);
     await updatePublicSyndication(entry.slug, state, config);
+
+    const platformStates = platforms.map((platform) => entryState.platforms[platform].status);
+    publicationAttempt.status = platformStates.includes("unknown")
+      ? "unknown"
+      : platformStates.includes("failed")
+        ? "partial"
+        : "published";
+    publicationAttempt.retryable = platformStates.includes("failed");
+    updatePublicationAttempt(publicationAttempt, "complete");
+    await saveState(config, state);
     const summary: PublishSummary = {
+      attemptId: publicationAttempt.id,
       slug: entry.slug,
       web: entry.canonicalUrl,
       platforms: entryState.platforms,
@@ -256,6 +323,40 @@ export async function publish(
       summary.orgSocial = `${config.site.public_url}/social.org`;
     }
     return summary;
+  } catch (error) {
+    if (state && publicationAttempt) {
+      publicationAttempt.status = "failed";
+      publicationAttempt.error = sanitizeError(error);
+      publicationAttempt.retryable =
+        !canonicalCommitted &&
+        ["input", "prepare", "preflight", "staging"].includes(publicationAttempt.phase) &&
+        !(publicationAttempt.slug && state.entries[publicationAttempt.slug]) &&
+        !errorMessage(error).includes("already published");
+      if (
+        publicationAttempt.phase === "staging" &&
+        errorMessage(error).includes("Generated target files have local changes")
+      ) {
+        try {
+          publicationAttempt.worktree_files = await listWorktreeChanges(config);
+        } catch {
+          // Preserve the original publication error if Git status also fails.
+        }
+      }
+      publicationAttempt.updated_at = new Date().toISOString();
+      try {
+        await saveState(config, state);
+      } catch {
+        // Preserve the original publication error if history persistence also fails.
+      }
+    }
+    if (publicationAttempt) {
+      const message = `${errorMessage(error)}\nAttempt ID: ${publicationAttempt.id}. Run satomi-2000 history for recovery.`;
+      if (error instanceof ValidationError) throw new ValidationError(message);
+      if (error instanceof AmbiguousPublishError) throw new AmbiguousPublishError(message);
+      if (error instanceof SatomiError) throw new SatomiError(message);
+      throw new Error(message, { cause: error });
+    }
+    throw error;
   } finally {
     await cleanupStagedSite(staged);
     await lock.release();
@@ -284,7 +385,7 @@ export async function retry(
   slug: string,
   platform: PlatformName,
   config: ResolvedConfig,
-  options: { forceXUrl?: boolean } = {},
+  options: { forceXUrl?: boolean; attemptId?: string } = {},
 ): Promise<PublishSummary> {
   const lock = new PublishLock(config.lockPath);
   await lock.acquire();
@@ -294,17 +395,12 @@ export async function retry(
     const entryState = state.entries[slug];
     if (!entryState) throw new ValidationError(`No state exists for slug: ${slug}`);
     const platformState = entryState.platforms[platform];
-    if (platformState.status === "published") {
-      throw new ValidationError(`${platform} is already published for ${slug}.`);
-    }
-    if (platformState.status === "unknown") {
+    if (platformState.status !== "failed") {
+      const guidance = platformState.status === "unknown" || platformState.status === "pending"
+        ? " Reconcile the account manually before retrying."
+        : "";
       throw new ValidationError(
-        `${platform} has unknown status. Reconcile the account manually before changing the state.`,
-      );
-    }
-    if (platformState.status === "pending" && platformState.attempted_at) {
-      throw new ValidationError(
-        `${platform} has a pending recorded attempt. Reconcile it before retrying.`,
+        `${platform} has status ${platformState.status}; only failed platforms can be retried.${guidance}`,
       );
     }
     const imagePath = entryState.repository_media_path
@@ -335,7 +431,26 @@ export async function retry(
     await mkdir(temporaryDirectory, { recursive: false, mode: 0o700 });
     await publishPlatforms(entry, entryState, state, config, credentials, [platform], temporaryDirectory);
     await updatePublicSyndication(slug, state, config);
+    const linkedAttempt = options.attemptId
+      ? state.attempts?.[options.attemptId]
+      : Object.values(state.attempts ?? {})
+          .filter((attempt) => attempt.slug === slug)
+          .sort((left, right) => right.created_at.localeCompare(left.created_at))[0];
+    if (linkedAttempt) {
+      const platformStates = Object.values(entryState.platforms).map((candidate) => candidate.status);
+      linkedAttempt.status = platformStates.includes("unknown")
+        ? "unknown"
+        : platformStates.includes("failed")
+          ? "partial"
+          : "published";
+      linkedAttempt.retryable = platformStates.includes("failed");
+      linkedAttempt.phase = "complete";
+      linkedAttempt.updated_at = new Date().toISOString();
+      delete linkedAttempt.error;
+      await saveState(config, state);
+    }
     const summary: PublishSummary = {
+      ...(linkedAttempt ? { attemptId: linkedAttempt.id } : {}),
       slug,
       web: entryState.canonical_url,
       platforms: entryState.platforms,
@@ -344,6 +459,192 @@ export async function retry(
     return summary;
   } finally {
     if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+    await lock.release();
+  }
+}
+
+function historyPlatformStatuses(entry: EntryState | undefined): Record<PlatformName, PlatformState["status"]> {
+  return {
+    mastodon: entry?.platforms.mastodon.status ?? "not_started",
+    bluesky: entry?.platforms.bluesky.status ?? "not_started",
+    x: entry?.platforms.x.status ?? "not_started",
+  };
+}
+
+function retryablePlatforms(entry: EntryState | undefined): PlatformName[] {
+  if (!entry) return [];
+  return (["mastodon", "bluesky", "x"] as const).filter(
+    (platform) => entry.platforms[platform].status === "failed",
+  );
+}
+
+function overallEntryStatus(entry: EntryState): string {
+  const statuses = Object.values(entry.platforms).map((platform) => platform.status);
+  if (statuses.includes("unknown")) return "unknown";
+  if (statuses.includes("failed")) return "partial";
+  if (statuses.some((status) => status === "pending")) return "pending";
+  return "published";
+}
+
+export async function publicationHistory(
+  config: ResolvedConfig,
+  limit = 10,
+): Promise<PublicationHistoryRow[]> {
+  const state = await loadState(config);
+  const rows: PublicationHistoryRow[] = [];
+  const representedSlugs = new Set<string>();
+
+  for (const attempt of Object.values(state.attempts ?? {})) {
+    const entry = attempt.slug ? state.entries[attempt.slug] : undefined;
+    if (attempt.slug && entry) representedSlugs.add(attempt.slug);
+    const failedPlatforms = retryablePlatforms(entry);
+    let nextCommand = "-";
+    if (attempt.status === "failed" && attempt.retryable) {
+      nextCommand = attempt.worktree_files?.length ? `resolve ${attempt.id}` : `retry ${attempt.id}`;
+    } else if (failedPlatforms.length === 1) {
+      nextCommand = `retry ${attempt.id} --platform ${failedPlatforms[0]}`;
+    } else if (failedPlatforms.length > 1) {
+      nextCommand = `retry ${attempt.id} --platform <platform>`;
+    } else if (attempt.status === "unknown") {
+      nextCommand = "manual-check";
+    } else if (attempt.status === "failed") {
+      nextCommand = "manual-check";
+    }
+    const row: PublicationHistoryRow = {
+      id: attempt.id,
+      createdAt: attempt.created_at,
+      slug: attempt.slug ?? "-",
+      status: attempt.status,
+      phase: attempt.phase,
+      platforms: historyPlatformStatuses(entry),
+      nextCommand,
+    };
+    if (attempt.error) row.error = attempt.error;
+    rows.push(row);
+  }
+
+  for (const [slug, entry] of Object.entries(state.entries)) {
+    if (representedSlugs.has(slug)) continue;
+    const failedPlatforms = retryablePlatforms(entry);
+    const nextCommand = failedPlatforms.length === 1
+      ? `retry ${slug} --platform ${failedPlatforms[0]}`
+      : failedPlatforms.length > 1
+        ? `retry ${slug} --platform <platform>`
+        : "-";
+    rows.push({
+      id: slug,
+      createdAt: entry.published_at,
+      slug,
+      status: overallEntryStatus(entry),
+      phase: "legacy",
+      platforms: historyPlatformStatuses(entry),
+      nextCommand,
+    });
+  }
+
+  return rows
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, limit);
+}
+
+export async function retryPublication(
+  identifier: string,
+  platform: PlatformName | undefined,
+  config: ResolvedConfig,
+  options: { forceXUrl?: boolean } = {},
+): Promise<PublishSummary> {
+  const state = await loadState(config);
+  const attempt = state.attempts?.[identifier];
+  if (!attempt) {
+    if (!platform) {
+      throw new ValidationError(
+        `Retrying a legacy slug requires --platform. No attempt exists for ID: ${identifier}`,
+      );
+    }
+    return await retry(identifier, platform, config, options);
+  }
+
+  const entry = attempt.slug ? state.entries[attempt.slug] : undefined;
+  if (entry) {
+    const failedPlatforms = retryablePlatforms(entry);
+    const selectedPlatform = platform ?? (failedPlatforms.length === 1 ? failedPlatforms[0] : undefined);
+    if (!selectedPlatform) {
+      throw new ValidationError(
+        failedPlatforms.length > 1
+          ? `Attempt ${identifier} has multiple failed platforms; add --platform.`
+          : `Attempt ${identifier} has no failed platform to retry.`,
+      );
+    }
+    return await retry(attempt.slug ?? identifier, selectedPlatform, config, {
+      ...options,
+      attemptId: identifier,
+    });
+  }
+
+  if (!attempt.retryable || attempt.status !== "failed") {
+    throw new ValidationError(`Attempt ${identifier} is not safely retryable.`);
+  }
+  if (attempt.worktree_files?.length) {
+    throw new ValidationError(
+      `Attempt ${identifier} is blocked by local Jekyll changes. Run satomi-2000 resolve ${identifier} first.`,
+    );
+  }
+  return await publish(async () => attempt.draft, config, { attemptId: identifier });
+}
+
+export interface AttemptResolution {
+  id: string;
+  repository: string;
+  files: string[];
+  committed?: string;
+  nextCommand: string;
+}
+
+export async function resolvePublicationAttempt(
+  identifier: string,
+  config: ResolvedConfig,
+  keepLocalChanges = false,
+): Promise<AttemptResolution> {
+  const lock = new PublishLock(config.lockPath);
+  await lock.acquire();
+  try {
+    const state = await loadState(config);
+    const attempt = state.attempts?.[identifier];
+    if (!attempt) throw new ValidationError(`No publication attempt exists for ID: ${identifier}`);
+    const recorded = attempt.worktree_files ?? [];
+    const current = new Set(await listWorktreeChanges(config));
+    const files = recorded.filter((file) => current.has(file));
+    if (files.length === 0) {
+      delete attempt.worktree_files;
+      attempt.updated_at = new Date().toISOString();
+      await saveState(config, state);
+      return {
+        id: identifier,
+        repository: config.repositoryPath,
+        files: [],
+        nextCommand: `satomi-2000 retry ${identifier}`,
+      };
+    }
+    if (!keepLocalChanges) {
+      return {
+        id: identifier,
+        repository: config.repositoryPath,
+        files,
+        nextCommand: `satomi-2000 resolve ${identifier} --keep-local-changes`,
+      };
+    }
+    const committed = await commitLocalChanges(files, identifier, config);
+    delete attempt.worktree_files;
+    attempt.updated_at = new Date().toISOString();
+    await saveState(config, state);
+    return {
+      id: identifier,
+      repository: config.repositoryPath,
+      files,
+      committed,
+      nextCommand: `satomi-2000 retry ${identifier}`,
+    };
+  } finally {
     await lock.release();
   }
 }

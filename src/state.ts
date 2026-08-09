@@ -2,9 +2,12 @@ import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SatomiError, ValidationError } from "./errors.js";
 import type {
+  DraftInput,
   EntryState,
   PlatformName,
   PlatformState,
+  PublicationAttempt,
+  PublicationAttemptPhase,
   PreparedEntry,
   PublicationState,
   ResolvedConfig,
@@ -12,7 +15,7 @@ import type {
 import { pathExists, sanitizeError, writeTextAtomic } from "./utils.js";
 
 export function emptyState(): PublicationState {
-  return { version: 1, entries: {} };
+  return { version: 1, entries: {}, attempts: {} };
 }
 
 export async function loadState(config: ResolvedConfig): Promise<PublicationState> {
@@ -26,7 +29,50 @@ export async function loadState(config: ResolvedConfig): Promise<PublicationStat
   if (state.version !== 1 || typeof state.entries !== "object" || state.entries === null) {
     throw new ValidationError(`Unsupported or malformed state file: ${config.statePath}`);
   }
+  state.attempts ??= {};
   return state;
+}
+
+export function createPublicationAttempt(
+  state: PublicationState,
+  draft: DraftInput,
+  now = new Date(),
+): PublicationAttempt {
+  state.attempts ??= {};
+  const highest = Object.keys(state.attempts).reduce((maximum, id) => {
+    const match = /^A(\d{6})$/.exec(id);
+    return match ? Math.max(maximum, Number(match[1])) : maximum;
+  }, 0);
+  const id = `A${String(highest + 1).padStart(6, "0")}`;
+  const timestamp = now.toISOString();
+  const attempt: PublicationAttempt = {
+    id,
+    created_at: timestamp,
+    updated_at: timestamp,
+    status: "running",
+    phase: "input",
+    draft,
+    retryable: false,
+  };
+  state.attempts[id] = attempt;
+  return attempt;
+}
+
+export function restartPublicationAttempt(attempt: PublicationAttempt): void {
+  attempt.updated_at = new Date().toISOString();
+  attempt.status = "running";
+  attempt.phase = "input";
+  attempt.retryable = false;
+  delete attempt.error;
+  delete attempt.worktree_files;
+}
+
+export function updatePublicationAttempt(
+  attempt: PublicationAttempt,
+  phase: PublicationAttemptPhase,
+): void {
+  attempt.phase = phase;
+  attempt.updated_at = new Date().toISOString();
 }
 
 export async function saveState(

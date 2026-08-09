@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import { stat } from "node:fs/promises";
-import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
@@ -8,12 +6,21 @@ import { DEFAULT_CONFIG_FILE, loadConfig } from "./config.js";
 import { SatomiError, ValidationError } from "./errors.js";
 import {
   preview,
+  publicationHistory,
   publicationStatus,
   publish,
-  retry,
+  resolvePublicationAttempt,
+  retryPublication,
   validateDraft,
 } from "./pipeline.js";
-import type { DraftInput, PlatformName, PublishSummary, ResolvedConfig } from "./types.js";
+import type {
+  DraftInput,
+  PlatformName,
+  PlatformStatus,
+  PublicationHistoryRow,
+  PublishSummary,
+  ResolvedConfig,
+} from "./types.js";
 
 interface DraftOptions {
   text?: string;
@@ -64,22 +71,7 @@ async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
         ? (await terminal.question("Image (optional PNG, JPEG, WebP, or GIF; press Enter to skip):\n> ")).trim() ||
           undefined
         : undefined);
-    if (imagePath) {
-      const resolvedImagePath = path.resolve(imagePath);
-      let imageStats;
-      try {
-        imageStats = await stat(resolvedImagePath);
-      } catch {
-        throw new ValidationError(`Image does not exist: ${resolvedImagePath}`);
-      }
-      if (!imageStats.isFile()) {
-        throw new ValidationError(`Image is not a regular file: ${resolvedImagePath}`);
-      }
-    }
     const alt = options.alt;
-    if (!imagePath && alt !== undefined) {
-      throw new ValidationError("--alt can only be used with an image.");
-    }
     const draft: DraftInput = { text, forceXUrl: options.forceXUrl ?? false };
     if (imagePath) draft.imagePath = imagePath;
     if (alt !== undefined) draft.alt = alt;
@@ -96,6 +88,7 @@ async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
 
 function printSummary(summary: PublishSummary): void {
   console.log("Publication completed.");
+  if (summary.attemptId) console.log(`Attempt:  ${summary.attemptId}`);
   console.log(`Web:      ${summary.web}`);
   if (summary.orgSocial) console.log(`Org Social: ${summary.orgSocial}`);
   let failed = false;
@@ -111,6 +104,75 @@ function printSummary(summary: PublishSummary): void {
     }
   }
   if (failed) process.exitCode = 2;
+}
+
+function shortPlatformStatus(status: PlatformStatus): string {
+  return {
+    not_started: "-",
+    pending: "...",
+    published: "ok",
+    failed: "fail",
+    unknown: "?",
+  }[status];
+}
+
+function truncate(value: string, width: number): string {
+  return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`;
+}
+
+function historyDate(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(value));
+}
+
+function printHistory(rows: PublicationHistoryRow[], timeZone: string): void {
+  if (rows.length === 0) {
+    console.log("No publication history recorded.");
+    return;
+  }
+  const table = rows.map((row) => ({
+    ID: row.id,
+    WHEN: historyDate(row.createdAt, timeZone),
+    STATUS: row.status,
+    PHASE: row.phase,
+    SLUG: row.slug,
+    NETWORKS: `M:${shortPlatformStatus(row.platforms.mastodon)} B:${shortPlatformStatus(row.platforms.bluesky)} X:${shortPlatformStatus(row.platforms.x)}`,
+    NEXT: row.nextCommand === "-" ? "-" : `satomi-2000 ${row.nextCommand}`,
+  }));
+  const maximums: Record<keyof (typeof table)[number], number> = {
+    ID: 12,
+    WHEN: 16,
+    STATUS: 9,
+    PHASE: 11,
+    SLUG: 34,
+    NETWORKS: 18,
+    NEXT: 48,
+  };
+  const headers = Object.keys(table[0] ?? {}) as Array<keyof (typeof table)[number]>;
+  const widths = Object.fromEntries(
+    headers.map((header) => [
+      header,
+      Math.min(maximums[header], Math.max(header.length, ...table.map((row) => row[header].length))),
+    ]),
+  ) as Record<keyof (typeof table)[number], number>;
+  const line = (row: Record<string, string>) =>
+    headers.map((header) => truncate(row[header] ?? "", widths[header]).padEnd(widths[header])).join("  ");
+  console.log(line(Object.fromEntries(headers.map((header) => [header, header]))));
+  console.log(line(Object.fromEntries(headers.map((header) => [header, "-".repeat(widths[header])]))));
+  for (const row of table) console.log(line(row));
+
+  const errors = rows.filter((row) => row.error);
+  if (errors.length > 0) {
+    console.log("\nDetails:");
+    for (const row of errors) console.log(`${row.id}: ${row.error?.replace(/\s+/g, " ")}`);
+  }
 }
 
 addDraftOptions(program.command("publish").description("Publish one new entry")).action(
@@ -140,23 +202,61 @@ program
 
 program
   .command("retry")
-  .description("Retry exactly one failed platform")
-  .argument("<slug>", "published entry slug")
+  .description("Retry a failed publication attempt or platform")
+  .argument("<id-or-slug>", "attempt ID from history, or a legacy published slug")
   .addOption(
     new Option("--platform <platform>", "platform to retry")
       .choices(["mastodon", "bluesky", "x"])
-      .makeOptionMandatory(),
   )
   .option(
     "--force-x-url",
     "authorize one higher-cost X retry whose final payload contains a URL",
   )
-  .action(async (slug: string, options: { platform: PlatformName; forceXUrl?: boolean }) => {
+  .action(async (identifier: string, options: { platform?: PlatformName; forceXUrl?: boolean }) => {
     printSummary(
-      await retry(slug, options.platform, await config(), {
+      await retryPublication(identifier, options.platform, await config(), {
         forceXUrl: options.forceXUrl ?? false,
       }),
     );
+  });
+
+program
+  .command("history")
+  .description("Show the 10 most recent publication attempts and their recovery command")
+  .option("--limit <count>", "number of attempts to show", "10")
+  .action(async (options: { limit: string }) => {
+    const limit = Number(options.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new ValidationError("--limit must be an integer between 1 and 100.");
+    }
+    const resolved = await config();
+    printHistory(await publicationHistory(resolved, limit), resolved.content.timezone);
+  });
+
+program
+  .command("resolve")
+  .description("Inspect local files blocking a failed attempt, or commit them explicitly")
+  .argument("<attempt-id>", "attempt ID from history")
+  .option(
+    "--keep-local-changes",
+    "commit the recorded local Jekyll changes so the attempt can be retried",
+  )
+  .action(async (identifier: string, options: { keepLocalChanges?: boolean }) => {
+    const result = await resolvePublicationAttempt(
+      identifier,
+      await config(),
+      options.keepLocalChanges ?? false,
+    );
+    console.log(`Attempt:    ${result.id}`);
+    console.log(`Repository: ${result.repository}`);
+    if (result.files.length > 0) {
+      console.log("Local changes:");
+      for (const file of result.files) console.log(`  ${file}`);
+    } else {
+      console.log("No recorded blocking changes remain.");
+    }
+    if (result.committed) console.log(`Committed:  ${result.committed}`);
+    console.log(`Next:       ${result.nextCommand}`);
   });
 
 program

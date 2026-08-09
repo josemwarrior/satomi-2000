@@ -48,6 +48,44 @@ export async function assertGeneratedTargetsClean(
   }
 }
 
+export async function listWorktreeChanges(config: ResolvedConfig): Promise<string[]> {
+  const result = await runCommand(
+    "git",
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { cwd: config.repositoryPath },
+  );
+  const records = result.stdout.split("\0").filter(Boolean);
+  const paths: string[] = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record || record.length < 4) continue;
+    const status = record.slice(0, 2);
+    paths.push(record.slice(3));
+    if (status.includes("R") || status.includes("C")) index += 1;
+  }
+  return [...new Set(paths)];
+}
+
+export async function commitLocalChanges(
+  files: string[],
+  attemptId: string,
+  config: ResolvedConfig,
+): Promise<string> {
+  if (files.length === 0) throw new ValidationError("No local changes remain to resolve.");
+  await validateGitRepository(config);
+  const current = new Set(await listWorktreeChanges(config));
+  const changedFiles = files.filter((file) => current.has(file));
+  if (changedFiles.length === 0) throw new ValidationError("No recorded local changes remain.");
+  await runCommand("git", ["add", "--", ...changedFiles], { cwd: config.repositoryPath });
+  await runCommand(
+    "git",
+    ["commit", "--only", "-m", `chore: preserve local changes before ${attemptId}`, "--", ...changedFiles],
+    { cwd: config.repositoryPath },
+  );
+  const commit = await runCommand("git", ["rev-parse", "HEAD"], { cwd: config.repositoryPath });
+  return commit.stdout.trim();
+}
+
 export async function commitGeneratedFiles(
   generatedPaths: string[],
   slug: string,

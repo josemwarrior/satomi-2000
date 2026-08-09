@@ -11,6 +11,18 @@ export type PlatformStatus =
   | "published"
   | "failed"
   | "unknown";
+export type PublicationAttemptStatus = "running" | "failed" | "published" | "partial" | "unknown";
+export type PublicationAttemptPhase =
+  | "input"
+  | "prepare"
+  | "preflight"
+  | "staging"
+  | "commit"
+  | "push"
+  | "deployment"
+  | "platforms"
+  | "syndication"
+  | "complete";
 
 export interface ResolvedConfig extends Config {
   configPath: string;
@@ -90,6 +102,31 @@ export interface EntryState {
 export interface PublicationState {
   version: 1;
   entries: Record<string, EntryState>;
+  attempts?: Record<string, PublicationAttempt>;
+}
+
+export interface PublicationAttempt {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  status: PublicationAttemptStatus;
+  phase: PublicationAttemptPhase;
+  draft: DraftInput;
+  slug?: string;
+  error?: string;
+  retryable: boolean;
+  worktree_files?: string[];
+}
+
+export interface PublicationHistoryRow {
+  id: string;
+  createdAt: string;
+  slug: string;
+  status: string;
+  phase: string;
+  platforms: Record<PlatformName, PlatformStatus>;
+  nextCommand: string;
+  error?: string;
 }
 
 export interface PlatformResult {
@@ -106,6 +143,7 @@ export interface Credentials {
 }
 
 export interface PublishSummary {
+  attemptId?: string;
   slug: string;
   web: string;
   orgSocial?: string;
