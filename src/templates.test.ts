@@ -65,14 +65,22 @@ describe("derived Jekyll artifacts", () => {
   });
 
   it("renders Org Social, RSS, and JSON Feed", () => {
-    expect(renderSocialOrg([entry], config)).toContain("#+NICK: Game");
-    expect(renderSocialOrg([entry], config)).toContain("#+TITLE: Game on Org Social");
-    expect(renderSocialOrg([entry], config)).toContain("#+LANGUAGE: es en");
-    expect(renderSocialOrg([entry], config)).toContain("#+LINK: https://example.com/about");
-    expect(renderSocialOrg([entry], config)).toContain(":LANG: es");
+    const social = renderSocialOrg([entry], config);
+    expect(social).toContain("#+NICK: Game");
+    expect(social).toContain("#+TITLE: Game on Org Social");
+    expect(social).toContain("#+LANGUAGE: es en");
+    expect(social).toContain("#+LINK: https://example.com/about");
+    expect(social).toContain(":LANG: es");
+    expect(social).toContain("[[https://example.com/assets/test.gif][Two slimes & a hero]]");
     expect(renderRss([entry], config)).toContain("A test &amp; update");
     const feed = JSON.parse(renderJsonFeed([entry], config)) as { items: unknown[] };
     expect(feed.items).toHaveLength(1);
+  });
+
+  it("renders an Org Social image without an empty link description", () => {
+    const social = renderSocialOrg([{ ...entry, alt: undefined }], config);
+    expect(social).toContain("[[https://example.com/assets/test.gif]]");
+    expect(social).not.toContain("[[https://example.com/assets/test.gif][]]");
   });
 
   it("does not add entries that opted out when social.org is regenerated later", () => {

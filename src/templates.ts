@@ -94,7 +94,10 @@ export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig)
       "",
       entry.text.trim(),
     ];
-    if (entry.image) post.push("", `[[${absoluteUrl(config, entry.image)}][${entry.alt ?? ""}]]`);
+    if (entry.image) {
+      const imageUrl = absoluteUrl(config, entry.image);
+      post.push("", entry.alt ? `[[${imageUrl}][${entry.alt}]]` : `[[${imageUrl}]]`);
+    }
     return post;
   });
   return `${[...header, ...posts].join("\n")}\n`;
