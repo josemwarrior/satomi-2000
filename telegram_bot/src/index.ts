@@ -121,18 +121,38 @@ function parseMedia(value: unknown): PublishRequest["media"] {
   }
   assertOnlyKeys(value, ["url", "type"], "media");
   if (typeof value.url !== "string" || value.url.length > 2_048) {
-    throw new HttpError(400, "invalid_request", "media.url must be a valid HTTPS URL.");
+    throw new HttpError(
+      400,
+      "invalid_request",
+      "media.url must be a valid HTTPS URL.",
+    );
   }
   let url: URL;
   try {
     url = new URL(value.url);
   } catch {
-    throw new HttpError(400, "invalid_request", "media.url must be a valid HTTPS URL.");
+    throw new HttpError(
+      400,
+      "invalid_request",
+      "media.url must be a valid HTTPS URL.",
+    );
   }
-  if (url.protocol !== "https:" || url.username || url.password || !url.hostname) {
-    throw new HttpError(400, "invalid_request", "media.url must be a valid HTTPS URL.");
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    !url.hostname
+  ) {
+    throw new HttpError(
+      400,
+      "invalid_request",
+      "media.url must be a valid HTTPS URL.",
+    );
   }
-  if (typeof value.type !== "string" || !MEDIA_TYPES.has(value.type as MediaType)) {
+  if (
+    typeof value.type !== "string" ||
+    !MEDIA_TYPES.has(value.type as MediaType)
+  ) {
     throw new HttpError(
       400,
       "invalid_request",
@@ -144,7 +164,11 @@ function parseMedia(value: unknown): PublishRequest["media"] {
 
 function parsePublishRequest(value: unknown): PublishRequest {
   if (!isRecord(value)) {
-    throw new HttpError(400, "invalid_request", "The request body must be a JSON object.");
+    throw new HttpError(
+      400,
+      "invalid_request",
+      "The request body must be a JSON object.",
+    );
   }
   assertOnlyKeys(value, ["slug", "text", "media"], "request body");
   if (
@@ -162,9 +186,14 @@ function parsePublishRequest(value: unknown): PublishRequest {
     throw new HttpError(400, "invalid_request", "text must be a string.");
   }
   const text = value.text.trim();
-  if (!text) throw new HttpError(400, "invalid_request", "text cannot be empty.");
+  if (!text)
+    throw new HttpError(400, "invalid_request", "text cannot be empty.");
   if (CONTROL_CHARACTERS.test(text)) {
-    throw new HttpError(400, "invalid_request", "text contains unsupported control characters.");
+    throw new HttpError(
+      400,
+      "invalid_request",
+      "text contains unsupported control characters.",
+    );
   }
   const media = value.media === undefined ? undefined : parseMedia(value.media);
   const maximumCharacters = media ? 1_024 : 4_096;
@@ -181,20 +210,36 @@ function parsePublishRequest(value: unknown): PublishRequest {
 async function readJson(request: Request): Promise<unknown> {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) {
-    throw new HttpError(415, "unsupported_media_type", "Content-Type must be application/json.");
+    throw new HttpError(
+      415,
+      "unsupported_media_type",
+      "Content-Type must be application/json.",
+    );
   }
   const declaredLength = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    throw new HttpError(413, "request_too_large", "The request body is too large.");
+    throw new HttpError(
+      413,
+      "request_too_large",
+      "The request body is too large.",
+    );
   }
   const text = await request.text();
   if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    throw new HttpError(413, "request_too_large", "The request body is too large.");
+    throw new HttpError(
+      413,
+      "request_too_large",
+      "The request body is too large.",
+    );
   }
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new HttpError(400, "invalid_json", "The request body is not valid JSON.");
+    throw new HttpError(
+      400,
+      "invalid_json",
+      "The request body is not valid JSON.",
+    );
   }
 }
 
@@ -221,7 +266,11 @@ function assertConfigured(env: Env): void {
     !env.TELEGRAM_GATEWAY_TOKEN ||
     env.TELEGRAM_GATEWAY_TOKEN.length < 32
   ) {
-    throw new HttpError(500, "configuration_error", "The Worker is not configured correctly.");
+    throw new HttpError(
+      500,
+      "configuration_error",
+      "The Worker is not configured correctly.",
+    );
   }
 }
 
@@ -229,13 +278,21 @@ async function assertAuthorized(request: Request, env: Env): Promise<void> {
   const authorization = request.headers.get("authorization") ?? "";
   const match = /^Bearer ([^\s]+)$/u.exec(authorization);
   if (!match || !(await secureEqual(match[1]!, env.TELEGRAM_GATEWAY_TOKEN))) {
-    throw new HttpError(401, "unauthorized", "Valid bearer authentication is required.");
+    throw new HttpError(
+      401,
+      "unauthorized",
+      "Valid bearer authentication is required.",
+    );
   }
 }
 
 function cleanTelegramDescription(value: unknown): string {
-  if (typeof value !== "string") return "Telegram returned an unspecified error.";
-  return value.replace(/[\u0000-\u001F\u007F]+/gu, " ").trim().slice(0, 300);
+  if (typeof value !== "string")
+    return "Telegram returned an unspecified error.";
+  return value
+    .replace(/[\u0000-\u001F\u007F]+/gu, " ")
+    .trim()
+    .slice(0, 300);
 }
 
 async function telegramCall<T>(
@@ -245,17 +302,33 @@ async function telegramCall<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parameters),
-      signal: AbortSignal.timeout(15_000),
-    });
+    response = await fetch(
+      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parameters),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
   } catch (error) {
-    if (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name)) {
-      throw new HttpError(504, "telegram_timeout", "Telegram did not respond in time.", true);
+    if (
+      error instanceof Error &&
+      ["AbortError", "TimeoutError"].includes(error.name)
+    ) {
+      throw new HttpError(
+        504,
+        "telegram_timeout",
+        "Telegram did not respond in time.",
+        true,
+      );
     }
-    throw new HttpError(502, "telegram_unavailable", "Telegram could not be reached.", true);
+    throw new HttpError(
+      502,
+      "telegram_unavailable",
+      "Telegram could not be reached.",
+      true,
+    );
   }
 
   let envelope: TelegramEnvelope<T>;
@@ -281,7 +354,11 @@ async function telegramCall<T>(
 async function validateTelegram(env: Env): Promise<Response> {
   const bot = await telegramCall<TelegramUser>(env, "getMe", {});
   if (!bot.is_bot) {
-    throw new HttpError(409, "telegram_preflight_failed", "The configured account is not a bot.");
+    throw new HttpError(
+      409,
+      "telegram_preflight_failed",
+      "The configured account is not a bot.",
+    );
   }
   const chat = await telegramCall<TelegramChat>(env, "getChat", {
     chat_id: env.TELEGRAM_CHANNEL_ID,
@@ -293,13 +370,18 @@ async function validateTelegram(env: Env): Promise<Response> {
       "TELEGRAM_CHANNEL_ID does not identify a Telegram channel.",
     );
   }
-  const membership = await telegramCall<TelegramChatMember>(env, "getChatMember", {
-    chat_id: env.TELEGRAM_CHANNEL_ID,
-    user_id: bot.id,
-  });
+  const membership = await telegramCall<TelegramChatMember>(
+    env,
+    "getChatMember",
+    {
+      chat_id: env.TELEGRAM_CHANNEL_ID,
+      user_id: bot.id,
+    },
+  );
   const canPost =
     membership.status === "creator" ||
-    (membership.status === "administrator" && membership.can_post_messages === true);
+    (membership.status === "administrator" &&
+      membership.can_post_messages === true);
   if (!canPost) {
     throw new HttpError(
       409,
@@ -328,7 +410,10 @@ function messageUrl(chat: TelegramChat, messageId: number): string | null {
   return null;
 }
 
-async function publishTelegram(env: Env, publication: PublishRequest): Promise<Response> {
+async function publishTelegram(
+  env: Env,
+  publication: PublishRequest,
+): Promise<Response> {
   let method: "sendMessage" | "sendPhoto" | "sendAnimation" | "sendDocument";
   let parameters: Record<string, unknown>;
   if (!publication.media) {
@@ -358,7 +443,12 @@ async function publishTelegram(env: Env, publication: PublishRequest): Promise<R
   }
   const message = await telegramCall<TelegramMessage>(env, method, parameters);
   if (!Number.isInteger(message.message_id) || !message.chat) {
-    throw new HttpError(502, "telegram_invalid_response", "Telegram returned an invalid message.", true);
+    throw new HttpError(
+      502,
+      "telegram_invalid_response",
+      "Telegram returned an invalid message.",
+      true,
+    );
   }
   return jsonResponse({
     ok: true,
@@ -374,7 +464,12 @@ async function publishTelegram(env: Env, publication: PublishRequest): Promise<R
 function normalizeError(error: unknown, publishing: boolean): HttpError {
   if (error instanceof HttpError) {
     return publishing && error.code.startsWith("telegram_") && !error.ambiguous
-      ? new HttpError(error.status, error.code, error.message, error.status >= 500)
+      ? new HttpError(
+          error.status,
+          error.code,
+          error.message,
+          error.status >= 500,
+        )
       : error;
   }
   if (error instanceof TelegramApiError) {
@@ -400,7 +495,8 @@ export const worker = {
     if (request.method === "GET" && url.pathname === "/health") {
       return jsonResponse({ ok: true, service: SERVICE, version: VERSION });
     }
-    const isValidate = request.method === "POST" && url.pathname === "/validate";
+    const isValidate =
+      request.method === "POST" && url.pathname === "/validate";
     const isPublish = request.method === "POST" && url.pathname === "/publish";
     if (!isValidate && !isPublish) {
       return errorResponse(new HttpError(404, "not_found", "Route not found."));
