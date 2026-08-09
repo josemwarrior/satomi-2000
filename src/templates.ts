@@ -61,6 +61,7 @@ export function renderPost(entry: ContentEntry, config: ResolvedConfig): string 
       mastodon: config.destinations.mastodon,
       bluesky: config.destinations.bluesky,
       x: config.destinations.x,
+      telegram: config.destinations.telegram ?? false,
     },
   };
   if (entry.image) frontMatter.image = entry.image;

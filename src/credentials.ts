@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import process from "node:process";
 import dotenv from "dotenv";
 import { ValidationError } from "./errors.js";
-import type { Credentials, PlatformName, ResolvedConfig } from "./types.js";
+import { PLATFORM_NAMES, type Credentials, type PlatformName, type ResolvedConfig } from "./types.js";
 import { pathExists, runCommand } from "./utils.js";
 import { obtainXAccessToken } from "./x-auth.js";
 
@@ -46,7 +46,7 @@ async function optionalValue(config: ResolvedConfig, name: string): Promise<stri
 
 export async function loadCredentials(
   config: ResolvedConfig,
-  platforms: PlatformName[] = (["mastodon", "bluesky", "x"] as PlatformName[]).filter(
+  platforms: PlatformName[] = PLATFORM_NAMES.filter(
     (name) => config.destinations[name],
   ),
 ): Promise<Credentials> {
@@ -66,12 +66,14 @@ export async function loadCredentials(
         handle: await value(config, "BLUESKY_HANDLE"),
         appPassword: await value(config, "BLUESKY_APP_PASSWORD"),
       };
-    } else {
+    } else if (platform === "x") {
       const clientId = await value(config, "X_CLIENT_ID");
       const refreshToken = await optionalValue(config, "X_REFRESH_TOKEN");
       credentials.x = {
         accessToken: await obtainXAccessToken(config, clientId, refreshToken),
       };
+    } else {
+      credentials.telegram = { workerToken: await value(config, "TELEGRAM_WORKER_TOKEN") };
     }
   }
   return credentials;

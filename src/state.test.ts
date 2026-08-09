@@ -10,7 +10,7 @@ import {
   PublishLock,
   saveState,
 } from "./state.js";
-import type { EntryState, ResolvedConfig } from "./types.js";
+import type { EntryState, PublicationState, ResolvedConfig } from "./types.js";
 
 const temporaryPaths: string[] = [];
 
@@ -43,6 +43,42 @@ describe("publication attempt persistence", () => {
     await saveState(config, legacy);
     expect((await loadState(config)).attempts).toEqual({});
   });
+
+  it("adds Telegram as not started to legacy entries and attempts", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "satomi-state-telegram-"));
+    temporaryPaths.push(root);
+    const config = { statePath: path.join(root, "state.json") } as ResolvedConfig;
+    const legacy = {
+      version: 1,
+      entries: {
+        "legacy-post": {
+          platforms: {
+            mastodon: { status: "published" },
+            bluesky: { status: "not_started" },
+            x: { status: "not_started" },
+          },
+        },
+      },
+      attempts: {
+        A000001: {
+          destinations: {
+            jekyll: true,
+            org_social: false,
+            mastodon: true,
+            bluesky: false,
+            x: false,
+          },
+        },
+      },
+    } as unknown as PublicationState;
+    await saveState(config, legacy);
+
+    const migrated = await loadState(config);
+    expect(migrated.entries["legacy-post"]?.platforms.telegram).toEqual({
+      status: "not_started",
+    });
+    expect(migrated.attempts?.A000001?.destinations?.telegram).toBe(false);
+  });
 });
 
 describe("Bluesky record key persistence", () => {
@@ -52,6 +88,7 @@ describe("Bluesky record key persistence", () => {
         mastodon: { status: "not_started" },
         bluesky: { status: "failed" },
         x: { status: "not_started" },
+        telegram: { status: "not_started" },
       },
     } as EntryState;
 

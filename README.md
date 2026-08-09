@@ -10,6 +10,7 @@ With a single command, you can publish text and an optional PNG, JPEG, WebP, or 
 - X (optional)
 - Mastodon (optional)
 - Bluesky (optional)
+- Telegram channel through a Cloudflare Worker (optional)
 - Org Social (optional)
 
 **Note:** The X API currently charges per use. Satomi-2000 blocks X payloads containing a URL unless that one run includes `--force-x`.
@@ -22,6 +23,7 @@ The Satomi-2000 project and the Jekyll site may live anywhere on the same machin
 - Git
 - The Ruby, Bundler, and Jekyll toolchain required by the target site
 - FFmpeg only when a publication combines an animated GIF with Bluesky
+- Node.js 22 or newer only when developing or deploying `telegram_bot`
 
 ## Installation
 
@@ -48,6 +50,7 @@ destinations:
   mastodon: true
   bluesky: true
   x: true
+  telegram: true
 ```
 
 The Jekyll filesystem paths and public URLs are independent:
@@ -111,6 +114,26 @@ BLUESKY_HANDLE
 BLUESKY_APP_PASSWORD
 X_CLIENT_ID
 X_REFRESH_TOKEN
+TELEGRAM_WORKER_TOKEN
+```
+
+Telegram uses the authenticated Cloudflare Worker in `telegram_bot`. Put the
+Worker origin in `platforms.telegram.worker_url` and store only the separate
+gateway credential in `TELEGRAM_WORKER_TOKEN`. The Telegram bot token and
+channel identifier remain encrypted in Cloudflare and are never loaded by
+Satomi.
+
+```yaml
+platforms:
+  telegram:
+    worker_url: https://satomi-telegram.example.workers.dev
+    max_characters: 1024
+    max_gif_mb: 50
+    max_png_mb: 10
+    append_canonical_url: true
+    include_tags: true
+    upload_native_media: true
+    timeout_seconds: 30
 ```
 
 For X, register an OAuth 2.0 **Native App** with the callback configured under
@@ -158,7 +181,7 @@ For a text-only publication, press Enter at the interactive image prompt or omit
 ./satomi-2000 post -t "The save system is now stable."
 ```
 
-Alternative text is optional and is never requested interactively. Supply it explicitly with `--alt` when wanted. Satomi-2000 sends provided alt text only through platform features that support it: Mastodon media descriptions, Bluesky image/video alt, and X image metadata for PNG, JPEG, and WebP. X animated GIF uploads do not receive image-only alt metadata.
+Alternative text is optional and is never requested interactively. Supply it explicitly with `--alt` when wanted. Satomi-2000 sends provided alt text only through platform features that support it: Mastodon media descriptions, Bluesky image/video alt, and X image metadata for PNG, JPEG, and WebP. X animated GIF uploads do not receive image-only alt metadata. Telegram's Bot API does not expose a separate alternative-text field for these channel publications.
 
 `--text`, `--image`, and `--alt` also have the short forms `-t`, `-i`, and `-a`.
 
@@ -218,7 +241,7 @@ The codes can be combined in any order:
 - `x`: X
 - `m`: Mastodon
 - `b`: Bluesky
-- `t`: Telegram (accepted now and reserved for the future adapter)
+- `t`: Telegram
 
 For example, this publishes everywhere enabled by the configuration except
 Telegram and X:
@@ -249,7 +272,7 @@ Use `--config /private/path/config.yml` or set `SATOMI_CONFIG` when the private 
 
 Satomi records a publication attempt before it starts inspecting media, running preflight checks, staging Jekyll files, or calling a social API. This makes failures that happen before a post exists recoverable and distinguishes them from posts that reached Jekyll or a social platform.
 
-The history is stored locally in the `attempts` object of the configured `state.file` (normally `.satomi/state.json`). This private state is excluded from Git by the supplied `.gitignore`. It contains the post text and may contain an absolute local media path, so it should not be published or shared. `history` only reads this local state; it does not call Jekyll, GitHub, Mastodon, Bluesky, or X.
+The history is stored locally in the `attempts` object of the configured `state.file` (normally `.satomi/state.json`). This private state is excluded from Git by the supplied `.gitignore`. It contains the post text and may contain an absolute local media path, so it should not be published or shared. `history` only reads this local state; it does not call Jekyll, GitHub, Mastodon, Bluesky, X, Telegram, or the Telegram Worker.
 
 ### Listing recent attempts
 
@@ -268,11 +291,11 @@ satomi-2000 history --limit 25
 Example output:
 
 ```text
-ID       WHEN              STATUS     PHASE     SLUG                          NETWORKS          NEXT
--------  ----------------  ---------  --------  ----------------------------  ----------------  ----------------------------------------------
-A000003  2026-08-09 12:40  failed     staging   2026-08-09-bubble-bobble      M:- B:- X:-       satomi-2000 resolve A000003
-A000002  2026-08-09 12:10  partial    complete  2026-08-09-new-title-screen   M:ok B:fail X:ok  satomi-2000 retry A000002 --platform bluesky
-A000001  2026-08-09 11:50  published  complete  2026-08-09-save-system        M:ok B:ok X:-     -
+ID       WHEN              STATUS     PHASE     SLUG                          NETWORKS                  NEXT
+-------  ----------------  ---------  --------  ----------------------------  ------------------------  ----------------------------------------------
+A000003  2026-08-09 12:40  failed     staging   2026-08-09-bubble-bobble      M:- B:- X:- T:-           satomi-2000 resolve A000003
+A000002  2026-08-09 12:10  partial    complete  2026-08-09-new-title-screen   M:ok B:fail X:ok T:ok    satomi-2000 retry A000002 --platform bluesky
+A000001  2026-08-09 11:50  published  complete  2026-08-09-save-system        M:ok B:ok X:- T:ok       -
 
 Details:
 A000003: Generated target files have local changes: M microblog/feed.json ...
@@ -287,7 +310,7 @@ The columns mean:
 | `STATUS` | Overall result of the publication attempt. |
 | `PHASE` | Last pipeline phase reached. It identifies where the failure occurred. |
 | `SLUG` | Deterministic Jekyll slug. It may be known even when no post was created. |
-| `NETWORKS` | Compact Mastodon (`M`), Bluesky (`B`), and X state: `ok`, `fail`, `...`, `?`, or `-`. |
+| `NETWORKS` | Compact Mastodon (`M`), Bluesky (`B`), X, and Telegram (`T`) state: `ok`, `fail`, `...`, `?`, or `-`. |
 | `NEXT` | Complete safe command to run next. `-` means that no recovery action is required. |
 
 Long error messages are printed below the table under `Details`. Entries created before attempt history was introduced appear with phase `legacy`; their slug is their identifier.
@@ -323,7 +346,7 @@ Network state abbreviations are:
 | `commit` | Generated files were being applied and committed to the real Jekyll repository. Automatic full-publication retry is intentionally conservative after this phase begins. |
 | `push` | The canonical Git commit was being pushed. |
 | `deployment` | Satomi was waiting for the canonical post and media URLs to become publicly available. |
-| `platforms` | Selected Mastodon, Bluesky, and X publications were running. Each network keeps its own state. |
+| `platforms` | Selected Mastodon, Bluesky, X, and Telegram publications were running. Each network keeps its own state. |
 | `syndication` | Optional public syndication metadata was being updated. |
 | `complete` | The pipeline finished. Read `STATUS` and `NETWORKS` for its final result. |
 | `legacy` | The post predates attempt-level history and only the older publication state is available. |
@@ -400,6 +423,7 @@ If Jekyll succeeded but a social destination has the definite state `failed`, re
 satomi-2000 retry A000002 --platform mastodon
 satomi-2000 retry A000002 --platform bluesky
 satomi-2000 retry A000002 --platform x
+satomi-2000 retry A000002 --platform telegram
 ```
 
 When exactly one platform failed, the attempt ID alone is also sufficient; Satomi can infer it. Supplying `--platform` is clearer and is required when multiple platforms failed.
@@ -454,6 +478,23 @@ never written to disk. `-e x` bypasses this process completely.
 
 X is selected in the example so all choices are visible. Uncheck it until credentials and cost controls are ready. API pricing and access rules can change, so review the developer console before leaving it selected. Cost estimates are configuration values, not hard-coded assumptions.
 
+### Telegram
+
+Satomi never receives the Telegram bot token. During preflight it calls the
+authenticated Cloudflare Worker `/validate` endpoint, which confirms that the
+configured bot can post to the configured channel. After Jekyll and any media
+URL are publicly available, Satomi sends the final Telegram payload and public
+media URL to `/publish`.
+
+The Worker uses `sendMessage` for text, `sendPhoto` for PNG/JPEG,
+`sendAnimation` for GIF, and `sendDocument` for WebP. Channel posts therefore
+display the channel identity. A timeout or an explicitly ambiguous Worker
+response is stored as `unknown`; Satomi refuses to retry it automatically until
+the channel has been reconciled manually.
+
+The Worker source, local checks, endpoint contract, and Cloudflare secret names
+are documented in [`telegram_bot/README.md`](telegram_bot/README.md).
+
 Official references:
 
 - [Jekyll posts](https://jekyllrb.com/docs/posts/)
@@ -468,6 +509,8 @@ Official references:
 - [X chunked media uploads](https://docs.x.com/x-api/media/quickstart/media-upload-chunked)
 - [X image specifications](https://docs.x.com/x-api/media/quickstart/best-practices#image-specifications-and-recommendations)
 - [X create post API](https://docs.x.com/x-api/posts/create-post)
+- [Telegram Bot API](https://core.telegram.org/bots/api)
+- [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)
 
 ## Development
 

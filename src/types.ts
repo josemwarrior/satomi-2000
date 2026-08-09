@@ -2,7 +2,8 @@ import type { z } from "zod";
 import type { configSchema } from "./config.js";
 
 export type Config = z.infer<typeof configSchema>;
-export type PlatformName = "mastodon" | "bluesky" | "x";
+export const PLATFORM_NAMES = ["mastodon", "bluesky", "x", "telegram"] as const;
+export type PlatformName = (typeof PLATFORM_NAMES)[number];
 export type MediaType = "gif" | "png" | "jpeg" | "webp";
 export type ImageMimeType = "image/gif" | "image/png" | "image/jpeg" | "image/webp";
 export type PlatformStatus =
@@ -142,6 +143,7 @@ export interface Credentials {
   mastodon?: { url: string; token: string };
   bluesky?: { handle: string; appPassword: string };
   x?: { accessToken: string };
+  telegram?: { workerToken: string };
 }
 
 export interface PublishSummary {

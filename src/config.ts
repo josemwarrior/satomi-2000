@@ -41,6 +41,20 @@ const xOAuthCallbackUrl = z.url().refine((value) => {
   message: "must be a local URL such as http://127.0.0.1:3000/callback",
 });
 
+const telegramWorkerUrl = z.url().refine((value) => {
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    url.pathname === "/" &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}, {
+  message: "must be an HTTPS Worker origin such as https://satomi-telegram.example.workers.dev",
+});
+
 export const configSchema = z
   .object({
     version: z.literal(1),
@@ -65,6 +79,7 @@ export const configSchema = z
         mastodon: z.boolean(),
         bluesky: z.boolean(),
         x: z.boolean(),
+        telegram: z.boolean().default(false),
       })
       .strict(),
     content: z.object({
@@ -122,6 +137,18 @@ export const configSchema = z
         estimated_cost_with_url_usd: z.number().nonnegative(),
         automatic_retry: z.literal(false).default(false),
       }),
+      telegram: basePlatformSchema.extend({
+        worker_url: telegramWorkerUrl.optional(),
+        timeout_seconds: z.number().int().positive().default(30),
+      }).default({
+        max_characters: 1_024,
+        max_gif_mb: 50,
+        max_png_mb: 10,
+        append_canonical_url: true,
+        include_tags: true,
+        upload_native_media: true,
+        timeout_seconds: 30,
+      }),
     }),
     git: z.object({
       commit_message_template: z.string().includes("{slug}"),
@@ -144,7 +171,16 @@ export const configSchema = z
       keychain_service_prefix: z.string().min(1).default("satomi"),
     }),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.destinations.telegram && !value.platforms.telegram.worker_url) {
+      context.addIssue({
+        code: "custom",
+        path: ["platforms", "telegram", "worker_url"],
+        message: "is required when destinations.telegram is true",
+      });
+    }
+  });
 
 function formatZodError(error: z.ZodError): string {
   return error.issues

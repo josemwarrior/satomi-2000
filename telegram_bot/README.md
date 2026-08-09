@@ -55,4 +55,13 @@ Configure these as encrypted Worker secrets, never as plaintext `vars`:
 - `TELEGRAM_GATEWAY_TOKEN` (at least 32 random characters)
 
 The names are declared in `wrangler.jsonc`; their values are not part of this
-repository. No deployment has been performed as part of the local scaffold.
+repository. The production deployment and secret values remain managed in
+Cloudflare.
+
+## Connect Satomi
+
+The root Satomi project calls this Worker instead of calling the Telegram Bot
+API directly. Configure its public origin under `platforms.telegram.worker_url`,
+enable `destinations.telegram`, and put the same gateway credential in the
+private root `.env` as `TELEGRAM_WORKER_TOKEN`. Do not copy
+`TELEGRAM_BOT_TOKEN` or `TELEGRAM_CHANNEL_ID` out of Cloudflare.

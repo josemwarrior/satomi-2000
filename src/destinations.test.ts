@@ -10,6 +10,7 @@ const config = {
     mastodon: true,
     bluesky: true,
     x: true,
+    telegram: true,
   },
 } as ResolvedConfig;
 
@@ -26,6 +27,7 @@ describe("per-run destination exclusions", () => {
       mastodon: true,
       bluesky: true,
       x: false,
+      telegram: false,
     });
     expect(config.destinations.x).toBe(true);
   });
@@ -37,11 +39,13 @@ describe("per-run destination exclusions", () => {
       mastodon: false,
       bluesky: false,
       x: false,
+      telegram: false,
     });
   });
 
-  it("accepts Telegram as a reserved no-op code", () => {
-    expect(applyDestinationExclusions(config, "t").destinations).toEqual(config.destinations);
+  it("excludes Telegram with the t code", () => {
+    expect(applyDestinationExclusions(config, "t").destinations.telegram).toBe(false);
+    expect(config.destinations.telegram).toBe(true);
   });
 
   it("does not require or refresh X credentials when X is excluded", async () => {
@@ -55,6 +59,7 @@ describe("per-run destination exclusions", () => {
         mastodon: false,
         bluesky: false,
         x: true,
+        telegram: false,
       },
     } as ResolvedConfig, "x");
     await expect(loadCredentials(effective)).resolves.toEqual({});

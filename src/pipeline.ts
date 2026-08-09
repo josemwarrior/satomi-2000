@@ -35,19 +35,20 @@ import {
   updatePublicationAttempt,
 } from "./state.js";
 import { renderSyndicationData } from "./templates.js";
-import type {
-  Credentials,
-  DraftInput,
-  EntryState,
-  PlatformName,
-  PlatformResult,
-  PlatformState,
-  PreparedEntry,
-  PublicationAttempt,
-  PublicationHistoryRow,
-  PublicationState,
-  PublishSummary,
-  ResolvedConfig,
+import {
+  PLATFORM_NAMES,
+  type Credentials,
+  type DraftInput,
+  type EntryState,
+  type PlatformName,
+  type PlatformResult,
+  type PlatformState,
+  type PreparedEntry,
+  type PublicationAttempt,
+  type PublicationHistoryRow,
+  type PublicationState,
+  type PublishSummary,
+  type ResolvedConfig,
 } from "./types.js";
 import {
   commandExists,
@@ -59,6 +60,7 @@ import {
 } from "./utils.js";
 import { publishBluesky } from "./adapters/bluesky.js";
 import { publishMastodon, validateMastodonInstance } from "./adapters/mastodon.js";
+import { publishTelegram, validateTelegramWorker } from "./adapters/telegram.js";
 import { publishX } from "./adapters/x.js";
 
 async function validateTools(
@@ -126,7 +128,7 @@ async function preflight(
   state: PublicationState,
   platforms?: PlatformName[],
 ): Promise<Credentials> {
-  const selected = platforms ?? (["mastodon", "bluesky", "x"] as PlatformName[]).filter(
+  const selected = platforms ?? PLATFORM_NAMES.filter(
     (name) => config.destinations[name],
   );
   if (
@@ -143,6 +145,9 @@ async function preflight(
   const credentials = await loadCredentials(config, selected);
   if (selected.includes("mastodon") && credentials.mastodon) {
     await validateMastodonInstance(entry, config, credentials.mastodon);
+  }
+  if (selected.includes("telegram") && credentials.telegram) {
+    await validateTelegramWorker(config, credentials.telegram);
   }
   return credentials;
 }
@@ -167,8 +172,14 @@ async function publishOne(
       : undefined;
     return await publishBluesky(entry, mp4, config, credentials.bluesky, blueskyRecordKey);
   }
-  if (!credentials.x) throw new ValidationError("X credentials were not loaded.");
-  return await publishX(entry, config, credentials.x);
+  if (platform === "x") {
+    if (!credentials.x) throw new ValidationError("X credentials were not loaded.");
+    return await publishX(entry, config, credentials.x);
+  }
+  if (!credentials.telegram) {
+    throw new ValidationError("Telegram credentials were not loaded.");
+  }
+  return await publishTelegram(entry, config, credentials.telegram);
 }
 
 async function publishPlatforms(
@@ -317,7 +328,7 @@ export async function publish(
       await waitForDeployment(entry, config);
     }
 
-    const platforms = (["mastodon", "bluesky", "x"] as PlatformName[]).filter(
+    const platforms = PLATFORM_NAMES.filter(
       (name) => config.destinations[name],
     );
     updatePublicationAttempt(publicationAttempt, "platforms");
@@ -491,12 +502,13 @@ function historyPlatformStatuses(entry: EntryState | undefined): Record<Platform
     mastodon: entry?.platforms.mastodon.status ?? "not_started",
     bluesky: entry?.platforms.bluesky.status ?? "not_started",
     x: entry?.platforms.x.status ?? "not_started",
+    telegram: entry?.platforms.telegram.status ?? "not_started",
   };
 }
 
 function retryablePlatforms(entry: EntryState | undefined): PlatformName[] {
   if (!entry) return [];
-  return (["mastodon", "bluesky", "x"] as const).filter(
+  return PLATFORM_NAMES.filter(
     (platform) => entry.platforms[platform].status === "failed",
   );
 }

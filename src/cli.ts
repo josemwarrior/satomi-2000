@@ -15,13 +15,14 @@ import {
   retryPublication,
   validateDraft,
 } from "./pipeline.js";
-import type {
-  DraftInput,
-  PlatformName,
-  PlatformStatus,
-  PublicationHistoryRow,
-  PublishSummary,
-  ResolvedConfig,
+import {
+  PLATFORM_NAMES,
+  type DraftInput,
+  type PlatformName,
+  type PlatformStatus,
+  type PublicationHistoryRow,
+  type PublishSummary,
+  type ResolvedConfig,
 } from "./types.js";
 
 interface DraftOptions {
@@ -98,7 +99,7 @@ function printSummary(summary: PublishSummary): void {
   console.log(`Web:      ${summary.web}`);
   if (summary.orgSocial) console.log(`Org Social: ${summary.orgSocial}`);
   let failed = false;
-  for (const name of ["mastodon", "bluesky", "x"] as const) {
+  for (const name of PLATFORM_NAMES) {
     const state = summary.platforms[name];
     if (!state || state.status === "not_started") continue;
     const label = name === "x" ? "X" : `${name[0]?.toUpperCase()}${name.slice(1)}`;
@@ -149,7 +150,7 @@ function printHistory(rows: PublicationHistoryRow[], timeZone: string): void {
     STATUS: row.status,
     PHASE: row.phase,
     SLUG: row.slug,
-    NETWORKS: `M:${shortPlatformStatus(row.platforms.mastodon)} B:${shortPlatformStatus(row.platforms.bluesky)} X:${shortPlatformStatus(row.platforms.x)}`,
+    NETWORKS: `M:${shortPlatformStatus(row.platforms.mastodon)} B:${shortPlatformStatus(row.platforms.bluesky)} X:${shortPlatformStatus(row.platforms.x)} T:${shortPlatformStatus(row.platforms.telegram)}`,
     NEXT: row.nextCommand === "-" ? "-" : `satomi-2000 ${row.nextCommand}`,
   }));
   const maximums: Record<keyof (typeof table)[number], number> = {
@@ -158,7 +159,7 @@ function printHistory(rows: PublicationHistoryRow[], timeZone: string): void {
     STATUS: 9,
     PHASE: 11,
     SLUG: 34,
-    NETWORKS: 18,
+    NETWORKS: 24,
     NEXT: 48,
   };
   const headers = Object.keys(table[0] ?? {}) as Array<keyof (typeof table)[number]>;
@@ -190,7 +191,7 @@ Destination exclusion codes:
   x  X
   m  Mastodon
   b  Bluesky
-  t  Telegram (reserved for future use)
+  t  Telegram
 
 Examples:
   $ satomi-2000 post -t "A text-only update."
@@ -230,7 +231,7 @@ program
   .argument("<id-or-slug>", "attempt ID from history, or a legacy published slug")
   .addOption(
     new Option("--platform <platform>", "platform to retry")
-      .choices(["mastodon", "bluesky", "x"])
+      .choices([...PLATFORM_NAMES])
   )
   .option(
     "--force-x",

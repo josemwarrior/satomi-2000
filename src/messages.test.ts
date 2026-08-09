@@ -27,6 +27,7 @@ const config = {
     mastodon: true,
     bluesky: true,
     x: true,
+    telegram: true,
   },
   platforms: {
     mastodon: {
@@ -48,6 +49,13 @@ const config = {
       max_gif_mb: 15,
       max_png_mb: 5,
       append_canonical_url: false,
+      include_tags: true,
+    },
+    telegram: {
+      max_characters: 1_024,
+      max_gif_mb: 50,
+      max_png_mb: 10,
+      append_canonical_url: true,
       include_tags: true,
     },
   },
@@ -75,6 +83,7 @@ describe("platform messages", () => {
         mastodon: false,
         bluesky: false,
         x: false,
+        telegram: false,
       },
     } as ResolvedConfig;
     expect(effectiveLimits(jekyllOnly)).toEqual({ characters: Infinity, mediaMb: Infinity });
@@ -87,6 +96,9 @@ describe("platform messages", () => {
     expect(
       buildPlatformPayload("bluesky", "Hello", ["indiedev"], "https://example.com/post", config),
     ).toBe("Hello\n\nhttps://example.com/post");
+    expect(
+      buildPlatformPayload("telegram", "Hello", ["indiedev"], "https://example.com/post", config),
+    ).toBe("Hello\n\n#indiedev\n\nhttps://example.com/post");
   });
 
   it("uses X weighted URL length instead of JavaScript string length", () => {

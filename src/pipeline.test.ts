@@ -149,11 +149,13 @@ describe("publication history", () => {
         mastodon: false,
         bluesky: false,
         x: false,
+        telegram: false,
       },
       platforms: {
         mastodon: { max_characters: 500, max_gif_mb: 16, max_png_mb: 16 },
         bluesky: { max_characters: 300, max_gif_mb: 50, max_png_mb: 2 },
         x: { max_characters: 280, max_gif_mb: 15, max_png_mb: 5 },
+        telegram: { max_characters: 1_024, max_gif_mb: 50, max_png_mb: 10 },
       },
       credentials: { provider: "env", keychain_service_prefix: "satomi" },
       jekyll: {
@@ -182,6 +184,7 @@ describe("publication history", () => {
         mastodon: false,
         bluesky: false,
         x: false,
+        telegram: false,
       },
     });
   });

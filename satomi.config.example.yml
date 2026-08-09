@@ -29,6 +29,7 @@ destinations:
   mastodon: true
   bluesky: true
   x: true
+  telegram: true
 
 content:
   # Defaults for the canonical Jekyll entry, RSS, JSON Feed, and social platforms.
@@ -106,6 +107,19 @@ platforms:
     estimated_cost_without_url_usd: 0.015
     estimated_cost_with_url_usd: 0.20
     automatic_retry: false
+
+  telegram:
+    # Public URL of the authenticated Cloudflare Worker gateway.
+    worker_url: https://satomi-telegram.example.workers.dev
+    # Telegram media captions allow at most 1024 characters.
+    max_characters: 1024
+    max_gif_mb: 50
+    # Shared conservative limit for PNG, JPEG, and WebP.
+    max_png_mb: 10
+    append_canonical_url: true
+    include_tags: true
+    upload_native_media: true
+    timeout_seconds: 30
 
 git:
   commit_message_template: "microblog: {slug}"

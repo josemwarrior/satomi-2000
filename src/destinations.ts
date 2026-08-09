@@ -4,7 +4,7 @@ import type { ResolvedConfig } from "./types.js";
 const SUPPORTED_CODES = new Set(["o", "x", "m", "b", "t"]);
 
 export const EXCLUSION_CODES_HELP =
-  "o=Org Social, x=X, m=Mastodon, b=Bluesky, t=Telegram (reserved for future use)";
+  "o=Org Social, x=X, m=Mastodon, b=Bluesky, t=Telegram";
 
 export function applyDestinationExclusions(
   config: ResolvedConfig,
@@ -29,6 +29,7 @@ export function applyDestinationExclusions(
   if (codes.includes("x")) destinations.x = false;
   if (codes.includes("m")) destinations.mastodon = false;
   if (codes.includes("b")) destinations.bluesky = false;
+  if (codes.includes("t")) destinations.telegram = false;
 
   return { ...config, destinations };
 }

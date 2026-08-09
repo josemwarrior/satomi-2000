@@ -27,6 +27,7 @@ const config = {
     mastodon: true,
     bluesky: true,
     x: false,
+    telegram: true,
   },
 } as ResolvedConfig;
 
@@ -51,6 +52,7 @@ describe("derived Jekyll artifacts", () => {
     expect(post).toContain("permalink: /microblog/2026-08-08-test/");
     expect(post).toContain("org_social: true");
     expect(post).toContain("org_social_language: es");
+    expect(post).toContain("telegram: true");
     expect(post).toContain("The combat system works.");
   });
 

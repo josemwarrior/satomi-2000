@@ -13,6 +13,7 @@ import type {
   PublicationState,
   ResolvedConfig,
 } from "./types.js";
+import { PLATFORM_NAMES } from "./types.js";
 import { pathExists, sanitizeError, writeTextAtomic } from "./utils.js";
 
 export function emptyState(): PublicationState {
@@ -31,6 +32,17 @@ export async function loadState(config: ResolvedConfig): Promise<PublicationStat
     throw new ValidationError(`Unsupported or malformed state file: ${config.statePath}`);
   }
   state.attempts ??= {};
+  for (const entry of Object.values(state.entries)) {
+    if (!entry.platforms || typeof entry.platforms !== "object") {
+      throw new ValidationError(`Unsupported or malformed state file: ${config.statePath}`);
+    }
+    entry.platforms.telegram ??= { status: "not_started" };
+  }
+  for (const attempt of Object.values(state.attempts)) {
+    if (attempt.destinations && attempt.destinations.telegram === undefined) {
+      attempt.destinations.telegram = false;
+    }
+  }
   return state;
 }
 
@@ -86,7 +98,7 @@ export async function saveState(
 
 export function makeEntryState(entry: PreparedEntry, config: ResolvedConfig): EntryState {
   const platforms = {} as Record<PlatformName, PlatformState>;
-  for (const name of ["mastodon", "bluesky", "x"] as const) {
+  for (const name of PLATFORM_NAMES) {
     platforms[name] = {
       status: config.destinations[name] ? "pending" : "not_started",
     };
