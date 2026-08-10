@@ -4,7 +4,7 @@
   "description": "A safe command-line publisher for a Jekyll microblog and social platforms.",
   "type": "module",
   "bin": {
-    "satomi-2000": "dist/cli.js"
+    "satomi": "dist/cli.js"
   },
   "files": [
     "dist",

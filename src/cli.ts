@@ -39,7 +39,7 @@ interface DraftOptions {
 
 const program = new Command();
 program
-  .name("satomi-2000")
+  .name("satomi")
   .description("Publish a Jekyll microblog entry and cross-post it safely.")
   .version("0.1.0")
   .showHelpAfterError()
@@ -166,7 +166,7 @@ function printHistory(rows: PublicationHistoryRow[], timeZone: string): void {
     PHASE: row.phase,
     SLUG: row.slug,
     NETWORKS: `M:${shortPlatformStatus(row.platforms.mastodon)} B:${shortPlatformStatus(row.platforms.bluesky)} X:${shortPlatformStatus(row.platforms.x)} T:${shortPlatformStatus(row.platforms.telegram)}`,
-    NEXT: row.nextCommand === "-" ? "-" : `satomi-2000 ${row.nextCommand}`,
+    NEXT: row.nextCommand === "-" ? "-" : `satomi ${row.nextCommand}`,
   }));
   const maximums: Record<keyof (typeof table)[number], number> = {
     ID: 12,
@@ -209,11 +209,11 @@ Destination exclusion codes:
   t  Telegram
 
 Examples:
-  $ satomi-2000 post -t "A text-only update."
-  $ satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
-  $ satomi-2000 post -t "Video update." -v https://files.example/video.mp4 -a "Gameplay footage"
-  $ satomi-2000 post -t "Jekyll and Bluesky only." -e omxt
-  $ satomi-2000 post -t "Notes: https://example.com" --force-x
+  $ satomi post -t "A text-only update."
+  $ satomi post -t "Animation update." -i game.gif -a "The player running"
+  $ satomi post -t "Video update." -v https://files.example/video.mp4 -a "Gameplay footage"
+  $ satomi post -t "Jekyll and Bluesky only." -e omxt
+  $ satomi post -t "Notes: https://example.com" --force-x
 `,
   )
   .action(
@@ -320,13 +320,13 @@ Post options:
   --force-x              Authorize an X payload containing a URL
 
 Examples:
-  $ satomi-2000 post -t "A text-only update."
-  $ satomi-2000 post -t "Animation update." -i game.gif
-  $ satomi-2000 post -t "Animation update." -i game.gif -a "The player running"
-  $ satomi-2000 post -t "Video update." -v https://files.example/video.mp4
-  $ satomi-2000 post -t "Skip Telegram and X." -e tx
-  $ satomi-2000 history
-  $ satomi-2000 post --help
+  $ satomi post -t "A text-only update."
+  $ satomi post -t "Animation update." -i game.gif
+  $ satomi post -t "Animation update." -i game.gif -a "The player running"
+  $ satomi post -t "Video update." -v https://files.example/video.mp4
+  $ satomi post -t "Skip Telegram and X." -e tx
+  $ satomi history
+  $ satomi post --help
 
 Use --force-x with post or retry to authorize an X payload containing a URL.
 Use post --help for media options and destination exclusion codes.

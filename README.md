@@ -23,16 +23,16 @@ Edit `satomi.config.yml` and add credentials for enabled platforms to `.env`.
 
 ```bash
 # Interactive
-./satomi-2000
+satomi
 
 # Text
-./satomi-2000 post -t "A new update."
+satomi post -t "A new update."
 
 # Image or GIF
-./satomi-2000 post -t "New animation." -i capture.gif
+satomi post -t "New animation." -i capture.gif
 
 # External MP4
-./satomi-2000 post -t "New gameplay." -v https://example.com/video.mp4
+satomi post -t "New gameplay." -v https://example.com/video.mp4
 ```
 
-Need another option? Run `./satomi-2000 --help`.
+Need another option? Run `satomi --help`.

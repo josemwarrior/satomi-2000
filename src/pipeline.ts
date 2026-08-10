@@ -404,7 +404,7 @@ export async function publish(
       }
     }
     if (publicationAttempt) {
-      const message = `${errorMessage(error)}\nAttempt ID: ${publicationAttempt.id}. Run satomi-2000 history for recovery.`;
+      const message = `${errorMessage(error)}\nAttempt ID: ${publicationAttempt.id}. Run satomi history for recovery.`;
       if (error instanceof ValidationError) throw new ValidationError(message);
       if (error instanceof AmbiguousPublishError) throw new AmbiguousPublishError(message);
       if (error instanceof SatomiError) throw new SatomiError(message);
@@ -657,7 +657,7 @@ export async function retryPublication(
   }
   if (attempt.worktree_files?.length) {
     throw new ValidationError(
-      `Attempt ${identifier} is blocked by local Jekyll changes. Run satomi-2000 resolve ${identifier} first.`,
+      `Attempt ${identifier} is blocked by local Jekyll changes. Run satomi resolve ${identifier} first.`,
     );
   }
   const retryConfig = attempt.destinations
@@ -696,7 +696,7 @@ export async function resolvePublicationAttempt(
         id: identifier,
         repository: config.repositoryPath,
         files: [],
-        nextCommand: `satomi-2000 retry ${identifier}`,
+        nextCommand: `satomi retry ${identifier}`,
       };
     }
     if (!keepLocalChanges) {
@@ -704,7 +704,7 @@ export async function resolvePublicationAttempt(
         id: identifier,
         repository: config.repositoryPath,
         files,
-        nextCommand: `satomi-2000 resolve ${identifier} --keep-local-changes`,
+        nextCommand: `satomi resolve ${identifier} --keep-local-changes`,
       };
     }
     const committed = await commitLocalChanges(files, identifier, config);
@@ -716,7 +716,7 @@ export async function resolvePublicationAttempt(
       repository: config.repositoryPath,
       files,
       committed,
-      nextCommand: `satomi-2000 retry ${identifier}`,
+      nextCommand: `satomi retry ${identifier}`,
     };
   } finally {
     await lock.release();
