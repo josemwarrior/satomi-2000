@@ -56,6 +56,7 @@ org_social:
 validation:
   require_matching_image_extension: true
   require_animated_gif: true
+  # Empty text is still accepted when an image or video is supplied.
   reject_empty_text: true
   reject_control_characters: true
   # MP4 compatibility profile checked with ffprobe after downloading the URL.

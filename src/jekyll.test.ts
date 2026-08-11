@@ -29,6 +29,27 @@ describe("Jekyll staging", () => {
       path.join(repository, "_posts/2026-08-07-unrelated.md"),
       "---\ntitle: Unrelated\ndate: 2026-08-07\n---\nThis is not a Satomi post.\n",
     );
+    await writeFile(
+      path.join(repository, "_posts/2026-08-07-reply.md"),
+      [
+        "---",
+        "satomi: true",
+        "title: A reply",
+        "date: '2026-08-07T12:00:00.000Z'",
+        "slug: 2026-08-07-reply",
+        "lang: es",
+        "tags: []",
+        "syndicate:",
+        "  org_social: true",
+        "  org_social_language: es",
+        "  org_social_client: iOS",
+        "  org_social_reply_to: 'https://example.com/alice/social.org#2026-08-07T11:00:00+0000'",
+        "org_social_text: '[[org-social:https://example.com/alice/social.org][alice]] Reply.'",
+        "---",
+        "[alice](https://example.com/alice/social.org) Reply.",
+        "",
+      ].join("\n"),
+    );
     const imagePath = path.join(root, "capture.png");
     const image = pngImage();
     await writeFile(imagePath, image);
@@ -105,6 +126,13 @@ describe("Jekyll staging", () => {
       expect(social).toContain("#+TITLE: Game on Org Social");
       expect(social).toContain("#+LANGUAGE: es en");
       expect(social).toContain(":LANG: es");
+      expect(social).toContain(":CLIENT: iOS");
+      expect(social).toContain(
+        ":REPLY_TO: https://example.com/alice/social.org#2026-08-07T11:00:00+0000",
+      );
+      expect(social).toContain(
+        "[[org-social:https://example.com/alice/social.org][alice]] Reply.",
+      );
       expect(social).not.toContain("This is not a Satomi post.");
       expect(await readFile(path.join(staged.repository, "_config.yml"), "utf8")).toBe(
         "title: Test\n",

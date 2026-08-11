@@ -16,6 +16,9 @@ export interface ContentEntry {
   tags: string[];
   language: string;
   orgSocialLanguage: string;
+  orgSocialReplyTo?: string;
+  orgSocialClient?: string;
+  orgSocialText?: string;
   text: string;
   orgSocial: boolean;
 }
@@ -64,6 +67,16 @@ export function contentEntryFromPrepared(entry: PreparedEntry, config: ResolvedC
 
 export function renderPost(entry: ContentEntry, config: ResolvedConfig): string {
   const publicPath = new URL(config.site.public_url).pathname.replace(/\/$/, "");
+  const syndicate: Record<string, unknown> = {
+    org_social: entry.orgSocial,
+    org_social_language: entry.orgSocialLanguage,
+    mastodon: config.destinations.mastodon,
+    bluesky: config.destinations.bluesky,
+    x: config.destinations.x,
+    telegram: config.destinations.telegram ?? false,
+  };
+  if (entry.orgSocialReplyTo) syndicate.org_social_reply_to = entry.orgSocialReplyTo;
+  if (entry.orgSocialClient) syndicate.org_social_client = entry.orgSocialClient;
   const frontMatter: Record<string, unknown> = {
     satomi: true,
     title: entry.title,
@@ -72,15 +85,9 @@ export function renderPost(entry: ContentEntry, config: ResolvedConfig): string 
     permalink: `${publicPath}/${entry.slug}/`.replace(/^\/\//, "/"),
     lang: entry.language,
     tags: entry.tags,
-    syndicate: {
-      org_social: entry.orgSocial,
-      org_social_language: entry.orgSocialLanguage,
-      mastodon: config.destinations.mastodon,
-      bluesky: config.destinations.bluesky,
-      x: config.destinations.x,
-      telegram: config.destinations.telegram ?? false,
-    },
+    syndicate,
   };
+  if (entry.orgSocialText) frontMatter.org_social_text = entry.orgSocialText;
   if (entry.image) frontMatter.image = entry.image;
   if (entry.video) {
     frontMatter.video = entry.video;
@@ -110,15 +117,20 @@ export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig)
     "* Posts",
   ];
   const posts = entries.filter((entry) => entry.orgSocial).flatMap((entry) => {
+    const properties = [
+      `:LANG: ${entry.orgSocialLanguage}`,
+      entry.tags.length > 0 ? `:TAGS: ${entry.tags.join(" ")}` : ":TAGS:",
+    ];
+    if (entry.orgSocialClient) properties.push(`:CLIENT: ${entry.orgSocialClient}`);
+    if (entry.orgSocialReplyTo) properties.push(`:REPLY_TO: ${entry.orgSocialReplyTo}`);
     const post = [
       "",
       `** ${orgTimestamp(entry.date)}`,
       ":PROPERTIES:",
-      `:LANG: ${entry.orgSocialLanguage}`,
-      `:TAGS: ${entry.tags.join(" ")}`,
+      ...properties,
       ":END:",
       "",
-      entry.text.trim(),
+      (entry.orgSocialText ?? entry.text).trim(),
     ];
     if (entry.image) {
       const imageUrl = absoluteUrl(config, entry.image);

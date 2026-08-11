@@ -85,6 +85,33 @@ describe("derived Jekyll artifacts", () => {
     expect(social).not.toContain("[[https://example.com/assets/test.gif][]]");
   });
 
+  it("preserves Org Social reply metadata and Org-specific content", () => {
+    const reply = {
+      ...entry,
+      orgSocialReplyTo:
+        "https://example.com/alice/social.org#2026-08-08T16:30:00+0000",
+      orgSocialClient: "iOS",
+      orgSocialText: "[[org-social:https://example.com/alice/social.org][alice]] Reply.",
+    };
+
+    const post = renderPost(reply, config);
+    expect(post).toContain(
+      "org_social_reply_to: 'https://example.com/alice/social.org#2026-08-08T16:30:00+0000'",
+    );
+    expect(post).toContain("org_social_client: iOS");
+    expect(post).toContain("org_social_text:");
+
+    const social = renderSocialOrg([reply], config);
+    expect(social).toContain(":CLIENT: iOS");
+    expect(social).toContain(
+      ":REPLY_TO: https://example.com/alice/social.org#2026-08-08T16:30:00+0000",
+    );
+    expect(social).toContain(
+      "[[org-social:https://example.com/alice/social.org][alice]] Reply.",
+    );
+    expect(social).not.toContain("The combat system works.");
+  });
+
   it("does not add entries that opted out when social.org is regenerated later", () => {
     expect(renderSocialOrg([{ ...entry, orgSocial: false }], config)).not.toContain(
       "The combat system works.",

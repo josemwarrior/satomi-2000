@@ -87,6 +87,24 @@ describe("X media capabilities", () => {
     });
   });
 
+  it("publishes media without sending an empty text field", async () => {
+    const entry = await mediaEntry("png");
+    entry.platformPayloads.x = "";
+    delete entry.alt;
+    const responses = [
+      json({ data: { id: "media-only" } }),
+      json({ data: { id: "post-media-only" } }),
+    ];
+    const fetchMock = vi.fn(async () => responses.shift() ?? json({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await publishX(entry, config, credentials);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      media: { media_ids: ["media-only"] },
+    });
+  });
+
   it("does not send image-only alt metadata for an animated GIF", async () => {
     const responses = [
       json({ data: { id: "media-2" } }),

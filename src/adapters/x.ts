@@ -146,7 +146,9 @@ export async function publishX(
   credentials: XCredentials,
 ): Promise<PlatformResult> {
   const mediaId = entry.media ? await uploadMedia(entry, credentials.accessToken) : undefined;
-  const body: Record<string, unknown> = { text: entry.platformPayloads.x };
+  const body: Record<string, unknown> = {};
+  const text = entry.platformPayloads.x ?? entry.text;
+  if (text || !mediaId) body.text = text;
   if (mediaId) body.media = { media_ids: [mediaId] };
   let response: Response;
   try {

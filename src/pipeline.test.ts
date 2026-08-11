@@ -25,7 +25,7 @@ afterEach(async () => {
   await Promise.all(temporaryPaths.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-describe("X URL cost authorization", () => {
+describe("X guardrails", () => {
   it("rejects a URL unless the specific force flag was supplied", () => {
     const entry = {
       platformPayloads: { x: "A costly link example.com" },
@@ -67,6 +67,15 @@ describe("X URL cost authorization", () => {
     expect(() => validateXGuardrails(entry, state, config)).not.toThrow();
   });
 
+  it("accepts an empty prepared X payload for a media-only post", () => {
+    const entry = {
+      platformPayloads: { x: "" },
+      forceXUrl: false,
+    } as PreparedEntry;
+
+    expect(() => validateXGuardrails(entry, emptyState(), config)).not.toThrow();
+  });
+
   it("counts published and ambiguous X attempts against the daily post limit", () => {
     const attemptedAt = new Date().toISOString();
     const state = emptyState();
@@ -87,6 +96,54 @@ describe("X URL cost authorization", () => {
       forceXUrl: false,
     } as PreparedEntry;
     expect(() => validateXGuardrails(entry, state, config)).toThrow(/local X limit/);
+  });
+
+  it("bypasses the daily X post limit when --force-x was supplied", () => {
+    const attemptedAt = new Date().toISOString();
+    const state = emptyState();
+    state.entries = {
+      published: {
+        platforms: {
+          x: { status: "published", attempted_at: attemptedAt },
+        },
+      },
+      unknown: {
+        platforms: {
+          x: { status: "unknown", attempted_at: attemptedAt },
+        },
+      },
+    } as typeof state.entries;
+    const warning = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const entry = {
+      platformPayloads: { x: "A forced third post" },
+      forceXUrl: true,
+    } as PreparedEntry;
+
+    expect(() => validateXGuardrails(entry, state, config)).not.toThrow();
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining("bypassing the local X limit"));
+    warning.mockRestore();
+  });
+
+  it("retains the per-run X cost guardrail when --force-x was supplied", () => {
+    const warning = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const strictCostConfig = {
+      ...config,
+      platforms: {
+        x: {
+          ...config.platforms.x,
+          max_estimated_cost_usd_per_run: 0.1,
+        },
+      },
+    } as ResolvedConfig;
+    const entry = {
+      platformPayloads: { x: "A costly link https://example.com" },
+      forceXUrl: true,
+    } as PreparedEntry;
+
+    expect(() => validateXGuardrails(entry, emptyState(), strictCostConfig)).toThrow(
+      /per-run guardrail/,
+    );
+    warning.mockRestore();
   });
 });
 

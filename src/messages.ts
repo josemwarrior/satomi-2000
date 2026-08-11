@@ -34,7 +34,8 @@ export function buildPlatformPayload(
   config: ResolvedConfig,
 ): string {
   const platformConfig = config.platforms[platform];
-  const sections = [text.trim()];
+  const sections: string[] = [];
+  if (text.trim()) sections.push(text.trim());
   if (platformConfig.include_tags && tags.length > 0) {
     sections.push(tags.map((tag) => `#${normalizeTag(tag)}`).join(" "));
   }
@@ -82,8 +83,16 @@ export async function prepareEntry(
   temporaryDirectory?: string,
 ): Promise<PreparedEntry> {
   const text = input.text.trim();
-  if (config.validation.reject_empty_text && text.length === 0) {
-    throw new ValidationError("The post text cannot be empty.");
+  if (input.imagePath && input.videoUrl) {
+    throw new ValidationError("--image and --video cannot be used together.");
+  }
+  if (
+    config.validation.reject_empty_text &&
+    text.length === 0 &&
+    !input.imagePath &&
+    !input.videoUrl
+  ) {
+    throw new ValidationError("The post text cannot be empty without an image or video.");
   }
   if (config.validation.reject_control_characters && CONTROL_CHARACTERS.test(text)) {
     throw new ValidationError("The post text contains unsupported control characters.");
@@ -100,9 +109,6 @@ export async function prepareEntry(
   let media: PreparedMedia | undefined;
   let alt: string | undefined;
   let baseName: string;
-  if (input.imagePath && input.videoUrl) {
-    throw new ValidationError("--image and --video cannot be used together.");
-  }
   if (input.imagePath) {
     const imagePath = path.resolve(input.imagePath);
     const image = await inspectImage(

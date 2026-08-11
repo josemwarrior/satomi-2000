@@ -188,6 +188,30 @@ describe("satomi Telegram Worker", () => {
     if (type === "mp4") expect(parameters.supports_streaming).toBe(true);
   });
 
+  it("publishes media without requiring or sending a caption", async () => {
+    telegramFetch.mockResolvedValueOnce(
+      telegramResponse({
+        message_id: 19,
+        chat: { id: -100123456, type: "channel" },
+      }),
+    );
+
+    const response = await worker.fetch(
+      authorizedPost("/publish", {
+        slug: "2026-08-09-media-only",
+        text: "",
+        media: { url: "https://media.example/image.png", type: "png" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(String(telegramFetch.mock.calls[0]![1]?.body))).toEqual({
+      chat_id: "@satomi_test_channel",
+      photo: "https://media.example/image.png",
+    });
+  });
+
   it("strictly validates publication payloads before contacting Telegram", async () => {
     const response = await worker.fetch(
       authorizedPost("/publish", {

@@ -186,8 +186,10 @@ function parsePublishRequest(value: unknown): PublishRequest {
     throw new HttpError(400, "invalid_request", "text must be a string.");
   }
   const text = value.text.trim();
-  if (!text)
-    throw new HttpError(400, "invalid_request", "text cannot be empty.");
+  const media = value.media === undefined ? undefined : parseMedia(value.media);
+  if (!text && !media) {
+    throw new HttpError(400, "invalid_request", "text cannot be empty without media.");
+  }
   if (CONTROL_CHARACTERS.test(text)) {
     throw new HttpError(
       400,
@@ -195,7 +197,6 @@ function parsePublishRequest(value: unknown): PublishRequest {
       "text contains unsupported control characters.",
     );
   }
-  const media = value.media === undefined ? undefined : parseMedia(value.media);
   const maximumCharacters = media ? 1_024 : 4_096;
   if (Array.from(text).length > maximumCharacters) {
     throw new HttpError(
@@ -424,21 +425,18 @@ async function publishTelegram(
     parameters = {
       chat_id: env.TELEGRAM_CHANNEL_ID,
       animation: publication.media.url,
-      caption: publication.text,
     };
   } else if (publication.media.type === "webp") {
     method = "sendDocument";
     parameters = {
       chat_id: env.TELEGRAM_CHANNEL_ID,
       document: publication.media.url,
-      caption: publication.text,
     };
   } else if (publication.media.type === "mp4") {
     method = "sendVideo";
     parameters = {
       chat_id: env.TELEGRAM_CHANNEL_ID,
       video: publication.media.url,
-      caption: publication.text,
       supports_streaming: true,
     };
   } else {
@@ -446,9 +444,9 @@ async function publishTelegram(
     parameters = {
       chat_id: env.TELEGRAM_CHANNEL_ID,
       photo: publication.media.url,
-      caption: publication.text,
     };
   }
+  if (publication.media && publication.text) parameters.caption = publication.text;
   const message = await telegramCall<TelegramMessage>(env, method, parameters);
   if (!Number.isInteger(message.message_id) || !message.chat) {
     throw new HttpError(

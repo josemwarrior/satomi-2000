@@ -57,6 +57,15 @@ async function readEntries(repository: string, config: ResolvedConfig): Promise<
         orgSocial: syndicate.org_social !== false,
       };
       if (source.data.image) entry.image = String(source.data.image);
+      if (source.data.org_social_text) {
+        entry.orgSocialText = String(source.data.org_social_text).trim();
+      }
+      if (syndicate.org_social_reply_to) {
+        entry.orgSocialReplyTo = String(syndicate.org_social_reply_to).trim();
+      }
+      if (syndicate.org_social_client) {
+        entry.orgSocialClient = String(syndicate.org_social_client).trim();
+      }
       if (source.data.video) {
         entry.video = String(source.data.video);
         entry.videoType = "video/mp4";

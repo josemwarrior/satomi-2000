@@ -17,7 +17,8 @@ Node.js 22 or newer is required by the current Wrangler toolchain. The
   and `can_post_messages` permission without publishing.
 - `POST /publish` requires bearer authentication and publishes one entry.
 
-The publication payload contains the final Telegram text:
+The publication payload contains the final Telegram text. `text` may be empty
+when `media` is present, in which case the media is sent without a caption:
 
 ```json
 {
@@ -30,8 +31,9 @@ The publication payload contains the final Telegram text:
 }
 ```
 
-`media` is optional. PNG and JPEG use `sendPhoto`, GIF uses `sendAnimation`,
-WebP uses `sendDocument`, and MP4 uses `sendVideo` with streaming enabled. MP4
+`media` is optional, but an empty `text` requires it. PNG and JPEG use
+`sendPhoto`, GIF uses `sendAnimation`, WebP uses `sendDocument`, and MP4 uses
+`sendVideo` with streaming enabled. MP4
 URLs must remain directly downloadable by Telegram and fit its remote-URL size
 limit.
 

@@ -94,7 +94,9 @@ export function validateXGuardrails(
 ): void {
   if (!config.destinations.x) return;
   const x = config.platforms.x;
-  const containsUrl = xPayloadContainsUrl(entry.platformPayloads.x ?? "");
+  const xPayload = entry.platformPayloads.x;
+  if (xPayload === undefined) throw new ValidationError("X payload was not prepared.");
+  const containsUrl = xPayloadContainsUrl(xPayload);
   if (containsUrl && !entry.forceXUrl) {
     throw new ValidationError(
       "The X payload contains a URL, which has a considerably higher configured cost. Re-run with --force-x to authorize this specific X post.",
@@ -124,9 +126,15 @@ export function validateXGuardrails(
     );
   }).length;
   if (attemptsToday >= x.max_posts_per_day) {
-    throw new ValidationError(`The local X limit of ${x.max_posts_per_day} posts per day was reached.`);
+    if (!entry.forceXUrl) {
+      throw new ValidationError(
+        `The local X limit of ${x.max_posts_per_day} posts per day was reached. Re-run with --force-x to bypass it.`,
+      );
+    }
+    process.stderr.write(
+      `WARNING: --force-x accepted; bypassing the local X limit of ${x.max_posts_per_day} posts per day.\n`,
+    );
   }
-  if (!entry.platformPayloads.x) throw new ValidationError("X payload was not prepared.");
 }
 
 async function preflight(
@@ -663,7 +671,14 @@ export async function retryPublication(
   const retryConfig = attempt.destinations
     ? { ...config, destinations: { ...attempt.destinations } }
     : config;
-  return await publish(async () => attempt.draft, retryConfig, { attemptId: identifier });
+  return await publish(
+    async () => ({
+      ...attempt.draft,
+      forceXUrl: options.forceXUrl ?? false,
+    }),
+    retryConfig,
+    { attemptId: identifier },
+  );
 }
 
 export interface AttemptResolution {

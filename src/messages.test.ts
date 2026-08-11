@@ -110,6 +110,9 @@ describe("platform messages", () => {
     expect(
       buildPlatformPayload("telegram", "Hello", ["indiedev"], "https://example.com/post", config),
     ).toBe("Hello\n\n#indiedev\n\nhttps://example.com/post");
+    expect(
+      buildPlatformPayload("mastodon", "", ["indiedev"], "https://example.com/post", config),
+    ).toBe("#indiedev\n\nhttps://example.com/post");
   });
 
   it("uses X weighted URL length instead of JavaScript string length", () => {
@@ -126,6 +129,22 @@ describe("platform messages", () => {
     expect(entry.media).toBeUndefined();
     expect(entry.alt).toBeUndefined();
     expect(entry.slug).toBe("2026-08-08-a-text-only-update");
+  });
+
+  it("still rejects empty text when no image or video was supplied", async () => {
+    await expect(prepareEntry({ text: "" }, config)).rejects.toThrow(
+      /cannot be empty without an image or video/,
+    );
+  });
+
+  it("keeps image and video inputs mutually exclusive", async () => {
+    await expect(
+      prepareEntry({
+        text: "",
+        imagePath: "/tmp/capture.png",
+        videoUrl: "https://files.example/gameplay.mp4",
+      }, config),
+    ).rejects.toThrow(/--image and --video cannot be used together/);
   });
 
   it("prepares PNG media with optional alternative text", async () => {
@@ -154,5 +173,14 @@ describe("platform messages", () => {
     );
     expect(entryWithoutAlt.media?.type).toBe("png");
     expect(entryWithoutAlt.alt).toBeUndefined();
+
+    const mediaOnlyEntry = await prepareEntry(
+      { text: "", imagePath },
+      config,
+      new Date("2026-08-08T17:30:00Z"),
+    );
+    expect(mediaOnlyEntry.text).toBe("");
+    expect(mediaOnlyEntry.media?.type).toBe("png");
+    expect(mediaOnlyEntry.slug).toBe("2026-08-08-title");
   });
 });

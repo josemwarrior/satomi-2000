@@ -51,7 +51,7 @@ program
 
 function addDraftOptions(command: Command): Command {
   return command
-    .option("-t, --text <text>", "post text")
+    .option("-t, --text <text>", "post text; optional with --image or --video")
     .addOption(
       new Option("-i, --image <file>", "optional PNG, JPEG, WebP, or animated GIF path")
         .conflicts("video"),
@@ -67,7 +67,7 @@ function addDraftOptions(command: Command): Command {
     .option("-e, --exclude <codes>", `exclude destinations for this run (${EXCLUSION_CODES_HELP})`)
     .option(
       "--force-x",
-      "authorize one higher-cost X post whose final payload contains a URL",
+      "authorize an X URL and bypass the local daily X post limit",
     );
 }
 
@@ -79,7 +79,11 @@ async function config(exclude?: string): Promise<ResolvedConfig> {
 async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
   const terminal = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const text = options.text ?? (await terminal.question("Post text:\n> "));
+    const text =
+      options.text ??
+      (options.image !== undefined || options.video !== undefined
+        ? ""
+        : await terminal.question("Post text:\n> "));
     const imagePath =
       options.image ??
       (options.text === undefined && options.video === undefined
@@ -210,6 +214,8 @@ Destination exclusion codes:
 
 Examples:
   $ satomi post -t "A text-only update."
+  $ satomi post -i capture.png
+  $ satomi post -v https://files.example/video.mp4
   $ satomi post -t "Animation update." -i game.gif -a "The player running"
   $ satomi post -t "Video update." -v https://files.example/video.mp4 -a "Gameplay footage"
   $ satomi post -t "Jekyll and Bluesky only." -e omxt
@@ -251,7 +257,7 @@ program
   )
   .option(
     "--force-x",
-    "authorize one higher-cost X retry whose final payload contains a URL",
+    "authorize an X URL and bypass the local daily X post limit",
   )
   .action(async (identifier: string, options: { platform?: PlatformName; forceX?: boolean }) => {
     printSummary(
@@ -312,15 +318,17 @@ program.addHelpText(
   "after",
   `
 Post options:
-  -t, --text <text>      Post text
+  -t, --text <text>      Post text; optional with --image or --video
   -i, --image <file>     Optional PNG, JPEG, WebP, or animated GIF
   -v, --video <url>      Optional direct HTTPS URL of an MP4 video
   -a, --alt <text>       Optional alternative text for attached media
   -e, --exclude <codes>  Exclude destinations for this run
-  --force-x              Authorize an X payload containing a URL
+  --force-x              Authorize an X URL and bypass its local daily limit
 
 Examples:
   $ satomi post -t "A text-only update."
+  $ satomi post -i capture.png
+  $ satomi post -v https://files.example/video.mp4
   $ satomi post -t "Animation update." -i game.gif
   $ satomi post -t "Animation update." -i game.gif -a "The player running"
   $ satomi post -t "Video update." -v https://files.example/video.mp4
@@ -328,7 +336,7 @@ Examples:
   $ satomi history
   $ satomi post --help
 
-Use --force-x with post or retry to authorize an X payload containing a URL.
+Use --force-x with post or retry to authorize an X URL and bypass the local daily X post limit.
 Use post --help for media options and destination exclusion codes.
 `,
 );
