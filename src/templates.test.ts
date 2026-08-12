@@ -118,6 +118,20 @@ describe("derived Jekyll artifacts", () => {
     );
   });
 
+  it("renders Org Social chronologically so the newest post is at the end", () => {
+    const olderEntry = {
+      ...entry,
+      slug: "2026-08-07-older",
+      date: "2026-08-07T17:30:00.000Z",
+      text: "Older post.",
+    };
+    const social = renderSocialOrg([entry, olderEntry], config);
+
+    expect(social.indexOf("Older post.")).toBeLessThan(
+      social.indexOf("The combat system works."),
+    );
+  });
+
   it("renders an external MP4 without treating it as a repository image", () => {
     const videoEntry = {
       ...entry,
