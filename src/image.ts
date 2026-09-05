@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ValidationError } from "./errors.js";
 import { inspectGifBuffer } from "./gif.js";
@@ -196,4 +196,91 @@ export async function inspectImage(
     };
   }
   throw new ValidationError("The image must be a valid PNG, JPEG, WebP, or GIF file.");
+}
+
+export function isRemoteImage(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+export function normalizeImageUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ValidationError("Image must be a direct HTTPS URL.");
+  }
+  if (value.length > 2048 || url.protocol !== "https:" || url.username || url.password || url.hash) {
+    throw new ValidationError("Image must be a direct HTTPS URL without credentials or a fragment (maximum 2048 characters).");
+  }
+  return url.toString();
+}
+
+export async function inspectRemoteImage(
+  value: string,
+  directory: string,
+  maximumBytes: number,
+  timeoutSeconds = 60,
+): Promise<ImageInfo & { sourcePath: string; publicUrl: string }> {
+  const publicUrl = normalizeImageUrl(value);
+  let current = publicUrl;
+  const signal = AbortSignal.timeout(timeoutSeconds * 1000);
+  for (let redirects = 0; redirects <= 5; redirects += 1) {
+    let response: Response;
+    try {
+      response = await fetch(current, {
+        headers: { Accept: "image/png,image/jpeg,image/webp,image/gif", "User-Agent": "satomi/0.1" },
+        redirect: "manual",
+        signal,
+      });
+    } catch {
+      throw new ValidationError(signal.aborted ? "Image download timed out." : "Image URL could not be downloaded.");
+    }
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      await response.body?.cancel();
+      if (!location || redirects === 5) throw new ValidationError("Image URL has an invalid or excessive redirect chain.");
+      current = normalizeImageUrl(new URL(location, current).toString());
+      continue;
+    }
+    const mime = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (!response.ok || !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mime ?? "")) {
+      await response.body?.cancel();
+      throw new ValidationError(`Image URL must return an image (HTTP ${response.status}, Content-Type ${mime ?? "none"}).`);
+    }
+    if (Number(response.headers.get("content-length")) > maximumBytes) {
+      await response.body?.cancel();
+      throw new ValidationError("Remote image exceeds the download size limit.");
+    }
+    if (!response.body) throw new ValidationError("Image URL returned an empty body.");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        if (bytes > maximumBytes) throw new ValidationError("Remote image exceeds the download size limit.");
+        chunks.push(chunk.value);
+      }
+    } catch (error) {
+      if (signal.aborted) throw new ValidationError("Image download timed out.");
+      throw error;
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+    await mkdir(directory, { recursive: true });
+    const sourcePath = path.join(directory, "remote-image");
+    await writeFile(sourcePath, Buffer.concat(chunks), { mode: 0o600 });
+    try {
+      const image = await inspectImage(sourcePath, false);
+      if (image.mimeType !== mime) throw new ValidationError("Image Content-Type does not match its contents.");
+      return { ...image, sourcePath, publicUrl };
+    } catch (error) {
+      await rm(sourcePath, { force: true });
+      throw error;
+    }
+  }
+  throw new ValidationError("Image URL exceeded five redirects.");
 }

@@ -60,6 +60,9 @@ validation:
   reject_empty_text: true
   reject_control_characters: true
   # MP4 compatibility profile checked with ffprobe after downloading the URL.
+  # Remote images are also checked against each selected platform limit.
+  max_remote_image_mb: 50
+  image_download_timeout_seconds: 60
   max_remote_video_mb: 200
   max_video_duration_seconds: 140
   max_video_width: 1280

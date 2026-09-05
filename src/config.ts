@@ -113,6 +113,8 @@ export const configSchema = z
       require_animated_gif: z.boolean().default(true),
       reject_empty_text: z.boolean().default(true),
       reject_control_characters: z.boolean().default(true),
+      max_remote_image_mb: z.number().positive().default(50),
+      image_download_timeout_seconds: z.number().int().positive().default(60),
       max_remote_video_mb: z.number().positive().default(200),
       max_video_duration_seconds: z.number().positive().default(140),
       max_video_width: z.number().int().positive().default(1280),

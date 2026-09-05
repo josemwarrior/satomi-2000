@@ -1,7 +1,7 @@
 import path from "node:path";
 import twitterText from "twitter-text";
 import { ValidationError } from "./errors.js";
-import { inspectImage } from "./image.js";
+import { inspectImage, inspectRemoteImage, isRemoteImage } from "./image.js";
 import { inspectRemoteVideo } from "./video.js";
 import type {
   DraftInput,
@@ -110,11 +110,18 @@ export async function prepareEntry(
   let alt: string | undefined;
   let baseName: string;
   if (input.imagePath) {
-    const imagePath = path.resolve(input.imagePath);
-    const image = await inspectImage(
-      imagePath,
-      config.validation.require_matching_image_extension,
-    );
+    const remote = isRemoteImage(input.imagePath);
+    if (remote && !temporaryDirectory) {
+      throw new ValidationError("A temporary directory is required for a remote image.");
+    }
+    const downloaded = remote ? await inspectRemoteImage(
+      input.imagePath,
+      temporaryDirectory!,
+      config.validation.max_remote_image_mb * 1_000_000,
+      config.validation.image_download_timeout_seconds,
+    ) : undefined;
+    const imagePath = downloaded?.sourcePath ?? path.resolve(input.imagePath);
+    const image = downloaded ?? await inspectImage(imagePath, config.validation.require_matching_image_extension);
     if (
       image.type === "gif" &&
       config.validation.require_animated_gif &&
@@ -141,7 +148,8 @@ export async function prepareEntry(
     ) {
       throw new ValidationError("X alternative text for an image cannot exceed 1000 characters.");
     }
-    baseName = slugify(path.basename(imagePath, path.extname(imagePath)));
+    const originalName = downloaded ? new URL(downloaded.publicUrl).pathname : imagePath;
+    baseName = slugify(path.basename(originalName, path.extname(originalName))) || "image";
     const fileName = `${baseName}${image.extension}`;
     media = {
       sourcePath: imagePath,
@@ -152,7 +160,8 @@ export async function prepareEntry(
       width: image.width,
       height: image.height,
       sha256: sha256(image.buffer),
-      publicUrl: joinUrl(config.site.media_url, fileName),
+      publicUrl: downloaded?.publicUrl ?? joinUrl(config.site.media_url, fileName),
+      ...(downloaded ? { external: true } : {}),
     };
     if (image.frames !== undefined) media.frames = image.frames;
   } else if (input.videoUrl) {

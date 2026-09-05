@@ -53,7 +53,7 @@ function addDraftOptions(command: Command): Command {
   return command
     .option("-t, --text <text>", "post text; optional with --image or --video")
     .addOption(
-      new Option("-i, --image <file>", "optional PNG, JPEG, WebP, or animated GIF path")
+      new Option("-i, --image <path-or-url>", "optional PNG, JPEG, WebP, or animated GIF local path or direct HTTPS URL")
         .conflicts("video"),
     )
     .addOption(
@@ -87,7 +87,7 @@ async function obtainDraft(options: DraftOptions): Promise<DraftInput> {
     const imagePath =
       options.image ??
       (options.text === undefined && options.video === undefined
-        ? (await terminal.question("Image (optional PNG, JPEG, WebP, or GIF; press Enter to skip):\n> ")).trim() ||
+        ? (await terminal.question("Image (optional local path or HTTPS URL; press Enter to skip):\n> ")).trim() ||
           undefined
         : undefined);
     const videoUrl =
@@ -319,7 +319,7 @@ program.addHelpText(
   `
 Post options:
   -t, --text <text>      Post text; optional with --image or --video
-  -i, --image <file>     Optional PNG, JPEG, WebP, or animated GIF
+  -i, --image <path-or-url>     Local image path or direct HTTPS URL
   -v, --video <url>      Optional direct HTTPS URL of an MP4 video
   -a, --alt <text>       Optional alternative text for attached media
   -e, --exclude <codes>  Exclude destinations for this run

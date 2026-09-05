@@ -115,7 +115,7 @@ export async function stageSite(entry: PreparedEntry, config: ResolvedConfig): P
   }
   await writeGenerated(repository, postPath, renderPost(contentEntryFromPrepared(entry, config), config));
   generatedPaths.push(postPath);
-  if (entry.media && entry.media.type !== "mp4") {
+  if (entry.media && entry.media.type !== "mp4" && !entry.media.external) {
     const mediaPath = path.join(config.site.media_directory, entry.media.fileName);
     if (await pathExists(path.join(config.repositoryPath, mediaPath))) {
       throw new ValidationError(`Media target already exists: ${mediaPath}`);

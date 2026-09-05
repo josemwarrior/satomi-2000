@@ -124,7 +124,7 @@ export function makeEntryState(entry: PreparedEntry, config: ResolvedConfig): En
     if (entry.media.durationSeconds !== undefined) {
       result.media_duration_seconds = entry.media.durationSeconds;
     }
-    if (entry.media.type !== "mp4") {
+    if (entry.media.type !== "mp4" && !entry.media.external) {
       result.repository_media_path = path.join(config.site.media_directory, entry.media.fileName);
     }
   }

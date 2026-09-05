@@ -48,6 +48,7 @@ export interface DraftInput {
 }
 
 export interface PreparedMedia {
+  external?: boolean;
   sourcePath: string;
   fileName: string;
   type: MediaType;

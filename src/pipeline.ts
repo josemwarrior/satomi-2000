@@ -1,5 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
+import { isRemoteImage } from "./image.js";
 import path from "node:path";
 import { AmbiguousPublishError, SatomiError, ValidationError } from "./errors.js";
 import { loadCredentials } from "./credentials.js";
@@ -253,8 +254,8 @@ export async function validateDraft(input: DraftInput, config: ResolvedConfig): 
   let staged: StagedSite | undefined;
   let temporaryMediaDirectory: string | undefined;
   try {
-    if (input.videoUrl) {
-      temporaryMediaDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-video-"));
+    if (input.videoUrl || (input.imagePath && isRemoteImage(input.imagePath))) {
+      temporaryMediaDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-media-"));
     }
     const entry = await prepareEntry(input, config, new Date(), temporaryMediaDirectory);
     const state = await loadState(config);
@@ -293,7 +294,9 @@ export async function publish(
   try {
     const suppliedInput = await obtainInput();
     const input: DraftInput = { ...suppliedInput };
-    if (suppliedInput.imagePath) input.imagePath = path.resolve(suppliedInput.imagePath);
+    if (suppliedInput.imagePath && !isRemoteImage(suppliedInput.imagePath)) {
+      input.imagePath = path.resolve(suppliedInput.imagePath);
+    }
     state = await loadState(config);
     if (options.attemptId) {
       publicationAttempt = state.attempts?.[options.attemptId];
@@ -310,8 +313,8 @@ export async function publish(
 
     updatePublicationAttempt(publicationAttempt, "prepare");
     await saveState(config, state);
-    if (input.videoUrl) {
-      temporaryMediaDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-video-"));
+    if (input.videoUrl || (input.imagePath && isRemoteImage(input.imagePath))) {
+      temporaryMediaDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-media-"));
     }
     const entry = await prepareEntry(input, config, new Date(), temporaryMediaDirectory);
     publicationAttempt.slug = entry.slug;
@@ -477,8 +480,8 @@ export async function retry(
     }
     const imagePath = entryState.media_type !== "mp4" && entryState.repository_media_path
       ? path.join(config.repositoryPath, entryState.repository_media_path)
-      : undefined;
-    if (imagePath && !(await pathExists(imagePath))) {
+      : entryState.media_type !== "mp4" ? entryState.media_url : undefined;
+    if (imagePath && !isRemoteImage(imagePath) && !(await pathExists(imagePath))) {
       throw new ValidationError(`Stored image not found: ${imagePath}`);
     }
     temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-retry-"));
