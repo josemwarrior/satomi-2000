@@ -1,4 +1,5 @@
 import matter from "gray-matter";
+import twitterText from "twitter-text";
 import type { EntryState, PreparedEntry, PublicationState, ResolvedConfig } from "./types.js";
 
 export interface ContentEntry {
@@ -105,6 +106,21 @@ function orgTimestamp(isoDate: string): string {
   return isoDate.replace(/\.\d{3}Z$/, "+0000").replace(/([+-]\d{2}):(\d{2})$/, "$1$2");
 }
 
+// Only linkify ordinary prose; preserve explicit links and literal code.
+function orgTextLinks(text: string): string {
+  const protectedRanges = [...text.matchAll(
+    /\[\[[^\n]*?\]\]|!?\[[^\]\n]*\]\([^\n]*?\)|`+[^`]*`+|^#\+begin_(src|example)\b[^\n]*\n[\s\S]*?^#\+end_\1\b[^\n]*/gim,
+  )].map(match => [match.index, match.index + match[0].length] as const);
+  const urls = twitterText.extractUrlsWithIndices(text, { extractUrlsWithoutProtocol: false });
+  let result = text;
+  // Work backwards so replacing a URL does not shift the remaining indices.
+  for (const { url, indices: [start, end] } of urls.reverse()) {
+    if (protectedRanges.some(([left, right]) => start < right && end > left)) continue;
+    result = `${result.slice(0, start)}[[${url}][${url}]]${result.slice(end)}`;
+  }
+  return result;
+}
+
 export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig): string {
   const header = [
     `#+TITLE: ${config.org_social.title}`,
@@ -133,7 +149,7 @@ export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig)
         ...properties,
         ":END:",
         "",
-        (entry.orgSocialText ?? entry.text).trim(),
+        (entry.orgSocialText ?? orgTextLinks(entry.text)).trim(),
       ];
       if (entry.image) {
         const imageUrl = absoluteUrl(config, entry.image);

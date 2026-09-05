@@ -45,6 +45,8 @@ satomi post -t "Extra update" --force-x
 
 Need another option? Run `satomi --help`.
 
+Bare `https://` and `http://` links in post text become explicit `[[URL][URL]]` text links in `social.org`. Existing links and code are preserved. An explicit `org_social_text` override is used unchanged.
+
 ## How to preserve an Org Social reply
 
 When a reply was created outside Satomi, add its metadata to the canonical Jekyll entry before the next publication rebuilds `social.org`:

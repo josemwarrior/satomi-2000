@@ -161,3 +161,36 @@ describe("derived Jekyll artifacts", () => {
     });
   });
 });
+
+
+describe("Org Social text links", () => {
+  it("formats bare HTTP(S) links while keeping punctuation, queries and parentheses", () => {
+    const text = "Mira https://example.com/a_(b)?x=1&y=2.\nY (http://example.org/news)!";
+    const social = renderSocialOrg([{ ...entry, text }], config);
+    expect(social).toContain("Mira [[https://example.com/a_(b)?x=1&y=2][https://example.com/a_(b)?x=1&y=2]].");
+    expect(social).toContain("Y ([[http://example.org/news][http://example.org/news]])!");
+    expect(renderPost({ ...entry, text }, config)).toContain(text);
+    expect(JSON.parse(renderJsonFeed([{ ...entry, text }], config)).items[0].content_text).toBe(text);
+  });
+
+  it("preserves existing links, mentions and code while formatting nearby prose", () => {
+    const protectedText = [
+      "[[https://example.com][Example]]",
+      "[[https://example.org]]",
+      "[[org-social:https://example.org/social.org][Alice]]",
+      "[Example](https://example.com)",
+      "`https://example.com/code`",
+      "```\nhttps://example.com/code\n```",
+      "#+begin_src text\nhttps://example.com/code\n#+end_src",
+    ].join("\n");
+    const social = renderSocialOrg([{ ...entry, text: `${protectedText}\nhttps://example.com/new` }], config);
+    expect(social).toContain(protectedText);
+    expect(social).toContain("[[https://example.com/new][https://example.com/new]]");
+  });
+
+  it("leaves explicitly authored org_social_text untouched", () => {
+    const orgSocialText = "See https://example.com plus [[https://example.org][Example]]";
+    const social = renderSocialOrg([{ ...entry, orgSocialText }], config);
+    expect(social).toContain(orgSocialText);
+  });
+});
