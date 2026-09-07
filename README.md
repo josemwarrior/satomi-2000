@@ -47,9 +47,13 @@ Need another option? Run `satomi --help`.
 
 Bare `https://` and `http://` links in post text become explicit `[[URL][URL]]` text links in `social.org`. Existing links and code are preserved. An explicit `org_social_text` override is used unchanged.
 
-## How to preserve an Org Social reply
+## How Org Social is updated
 
-When a reply was created outside Satomi, add its metadata to the canonical Jekyll entry before the next publication rebuilds `social.org`:
+When Org Social is selected, Satomi appends only the new post to the end of the existing `social.org`. The header, previous posts, replies, reactions, and manual edits are preserved exactly. Posts created with other clients do not need a matching Jekyll entry to survive the next publication. Keep the local file up to date with those changes before publishing.
+
+RSS and JSON Feed are still regenerated from the Jekyll entries. Editing or deleting an old Jekyll entry no longer changes `social.org`; edit the Org file directly when needed. Profile settings in the configuration initialize a missing file; update an existing profile in `social.org` itself. New posts still use `org_social.default_language`.
+
+Only if `social.org` does not exist does Satomi create it from the opted-in Jekyll history, in chronological order. To include a reply in that initial import, store its metadata in the Jekyll entry:
 
 ```yaml
 syndicate:
@@ -61,7 +65,7 @@ org_social_text: |-
   [[org-social:https://example.com/social.org][alice]] Reply written in Org syntax.
 ```
 
-`org_social_text` is optional. Use it when the Jekyll body is Markdown and the Org Social version needs Org links or mentions. Satomi reads these fields only while rebuilding the derived files; editing an existing entry does not syndicate it again.
+`org_social_text` is optional. Use it when the Jekyll body is Markdown and the Org Social version needs Org links or mentions. These historical fields are used only when creating a missing `social.org`; they do not overwrite an existing Org post or syndicate it again.
 
 ## External images
 
@@ -96,3 +100,7 @@ export SATOMI_CONFIG="$HOME/.satomi/satomi.config.yml"
 ```
 
 The repository must remain in place. If you move it or switch your NVM Node version, run `npm link` again from the repository using that Node version.
+
+Simply write your post in the terminal, and it will spread across all your social networks.
+
+![Satomi presentation](img/presentation.jpg)

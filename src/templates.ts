@@ -121,6 +121,30 @@ function orgTextLinks(text: string): string {
   return result;
 }
 
+export function renderSocialOrgPost(entry: ContentEntry, config: ResolvedConfig): string {
+  const properties = [
+    `:LANG: ${entry.orgSocialLanguage}`,
+    entry.tags.length > 0 ? `:TAGS: ${entry.tags.join(" ")}` : ":TAGS:",
+  ];
+  if (entry.orgSocialClient) properties.push(`:CLIENT: ${entry.orgSocialClient}`);
+  if (entry.orgSocialReplyTo) properties.push(`:REPLY_TO: ${entry.orgSocialReplyTo}`);
+  const post = [
+    `** ${orgTimestamp(entry.date)}`,
+    ":PROPERTIES:",
+    ...properties,
+    ":END:",
+    "",
+    (entry.orgSocialText ?? orgTextLinks(entry.text)).trim(),
+  ];
+  if (entry.image) {
+    const imageUrl = absoluteUrl(config, entry.image);
+    post.push("", entry.alt ? `[[${imageUrl}][${entry.alt}]]` : `[[${imageUrl}]]`);
+  } else if (entry.video) {
+    post.push("", entry.alt ? `[[${entry.video}][${entry.alt}]]` : `[[${entry.video}]]`);
+  }
+  return `${post.join("\n")}\n`;
+}
+
 export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig): string {
   const header = [
     `#+TITLE: ${config.org_social.title}`,
@@ -135,31 +159,8 @@ export function renderSocialOrg(entries: ContentEntry[], config: ResolvedConfig)
   const posts = entries
     .filter((entry) => entry.orgSocial)
     .sort((left, right) => left.date.localeCompare(right.date))
-    .flatMap((entry) => {
-      const properties = [
-        `:LANG: ${entry.orgSocialLanguage}`,
-        entry.tags.length > 0 ? `:TAGS: ${entry.tags.join(" ")}` : ":TAGS:",
-      ];
-      if (entry.orgSocialClient) properties.push(`:CLIENT: ${entry.orgSocialClient}`);
-      if (entry.orgSocialReplyTo) properties.push(`:REPLY_TO: ${entry.orgSocialReplyTo}`);
-      const post = [
-        "",
-        `** ${orgTimestamp(entry.date)}`,
-        ":PROPERTIES:",
-        ...properties,
-        ":END:",
-        "",
-        (entry.orgSocialText ?? orgTextLinks(entry.text)).trim(),
-      ];
-      if (entry.image) {
-        const imageUrl = absoluteUrl(config, entry.image);
-        post.push("", entry.alt ? `[[${imageUrl}][${entry.alt}]]` : `[[${imageUrl}]]`);
-      } else if (entry.video) {
-        post.push("", entry.alt ? `[[${entry.video}][${entry.alt}]]` : `[[${entry.video}]]`);
-      }
-      return post;
-    });
-  return `${[...header, ...posts].join("\n")}\n`;
+    .map((entry) => `\n${renderSocialOrgPost(entry, config)}`);
+  return `${header.join("\n")}\n${posts.join("")}`;
 }
 
 export function renderRss(entries: ContentEntry[], config: ResolvedConfig): string {

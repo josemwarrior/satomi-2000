@@ -2,8 +2,11 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import YAML from "yaml";
+import { configSchema } from "./config.js";
 import type { PreparedEntry, ResolvedConfig } from "./types.js";
-import { cleanupStagedSite, runJekyllBuild, stageSite } from "./jekyll.js";
+import { applyStagedFiles, cleanupStagedSite, runJekyllBuild, stageSite } from "./jekyll.js";
+import { contentEntryFromPrepared, renderPost } from "./templates.js";
 
 function pngImage(): Buffer {
   return Buffer.from(
@@ -15,6 +18,166 @@ function pngImage(): Buffer {
 const temporaryPaths: string[] = [];
 afterEach(async () => {
   await Promise.all(temporaryPaths.splice(0).map((item) => rm(item, { recursive: true, force: true })));
+});
+
+async function socialFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "satomi-append-test-"));
+  temporaryPaths.push(root);
+  const parsed = configSchema.parse(YAML.parse(
+    await readFile(new URL("../satomi.config.example.yml", import.meta.url), "utf8"),
+  ));
+  const config: ResolvedConfig = {
+    ...parsed,
+    repositoryPath: path.join(root, "blog"),
+    configPath: "unused",
+    configDirectory: root,
+    statePath: path.join(root, "state.json"),
+    lockPath: path.join(root, "lock"),
+    envPath: "unused",
+  };
+  const entry: PreparedEntry = {
+    slug: "2026-08-08-new",
+    title: "New post",
+    text: "A new update: https://example.com/new",
+    tags: ["indiedev"],
+    language: "en",
+    publishedAt: "2026-08-08T17:30:00.000Z",
+    contentSha256: "unused",
+    canonicalUrl: `${config.site.public_url}/2026-08-08-new/`,
+    forceXUrl: false,
+    platformPayloads: {},
+    payloadSha256: {},
+  };
+  const posts = path.join(config.repositoryPath, config.site.posts_directory);
+  const socialPath = path.join(config.site.public_files_directory, "social.org");
+  await mkdir(posts, { recursive: true });
+  await mkdir(path.dirname(path.join(config.repositoryPath, socialPath)), { recursive: true });
+  const oldEntry = {
+    ...contentEntryFromPrepared(entry, config),
+    slug: "2026-08-07-old",
+    date: "2026-08-07T17:30:00.000Z",
+    text: "An old post edited in Jekyll.",
+  };
+  await writeFile(path.join(posts, `${oldEntry.slug}.md`), renderPost(oldEntry, config));
+  const optedOut = { ...oldEntry, slug: "2026-08-07-private", orgSocial: false, text: "Opted out." };
+  await writeFile(path.join(posts, `${optedOut.slug}.md`), renderPost(optedOut, config));
+  return { config, entry, socialPath };
+}
+
+const existingSocial = [
+  "#+TITLE: My manually edited profile",
+  "#+NICK: alice",
+  "#+FOLLOW: https://example.com/bob/social.org",
+  "",
+  "* Posts",
+  "",
+  "** 2026-08-07T19:30:00+0200",
+  ":PROPERTIES:",
+  ":LANG: es",
+  ":CLIENT: iOS",
+  ":REPLY_TO: https://example.com/bob/social.org#2026-08-07T11:00:00+0000",
+  ":END:",
+  "",
+  "Una respuesta editada a mano. ❤️  ",
+  "",
+  "** 2026-08-08T10:00:00+0200",
+  ":PROPERTIES:",
+  ":MOOD: 👍",
+  ":END:",
+  "",
+  "Only in Org Social, with no matching Jekyll entry.",
+].join("\n");
+
+describe("Org Social append staging", () => {
+  it.each(["", "\n", "\n\n", "\n\n\n", "\r\n"])(
+    "preserves the existing bytes and appends one post with ending %j",
+    async (ending) => {
+      const { config, entry, socialPath } = await socialFixture();
+      const original = Buffer.from(`${existingSocial}${ending}`);
+      const target = path.join(config.repositoryPath, socialPath);
+      await writeFile(target, original);
+      const staged = await stageSite(entry, config);
+      try {
+        const social = await readFile(path.join(staged.repository, socialPath));
+        expect(social.subarray(0, original.length)).toEqual(original);
+        const appended = social.subarray(original.length).toString();
+        expect(appended).toMatch(/^\n{0,2}\*\* 2026-08-08T17:30:00\+0000\n/);
+        expect(appended.match(/^\*\* /gm)).toHaveLength(1);
+        expect(appended).toContain(":LANG: en\n:TAGS: indiedev");
+        expect(appended).toContain("A new update: [[https://example.com/new][https://example.com/new]]");
+        expect(social.toString()).not.toContain("An old post edited in Jekyll.");
+        expect(social.toString()).not.toContain("Opted out.");
+        expect(staged.generatedPaths.filter(file => file === socialPath)).toHaveLength(1);
+        expect(await readFile(target)).toEqual(original);
+        const feed = JSON.parse(await readFile(
+          path.join(staged.repository, config.site.public_files_directory, "feed.json"), "utf8",
+        ));
+        expect(feed.items[0].content_text).toBe(entry.text);
+        expect(feed.items.map((item: { content_text: string }) => item.content_text))
+          .toContain("An old post edited in Jekyll.");
+      } finally {
+        await cleanupStagedSite(staged);
+      }
+    },
+  );
+
+  it("keeps previous publications when applying successive staged changes", async () => {
+    const { config, entry, socialPath } = await socialFixture();
+    const target = path.join(config.repositoryPath, socialPath);
+    await writeFile(target, `${existingSocial}\n`);
+    const first = await stageSite(entry, config);
+    try {
+      await applyStagedFiles(first, config);
+      const afterFirst = await readFile(target, "utf8");
+      await applyStagedFiles(first, config);
+      expect(await readFile(target, "utf8")).toBe(afterFirst);
+      const second = await stageSite({
+        ...entry,
+        slug: "2026-08-09-second",
+        publishedAt: "2026-08-09T17:30:00.000Z",
+        text: "Second publication.",
+      }, config);
+      try {
+        await applyStagedFiles(second, config);
+        const afterSecond = await readFile(target, "utf8");
+        expect(afterSecond.startsWith(afterFirst)).toBe(true);
+        expect(afterSecond.match(/^\*\* /gm)).toHaveLength(4);
+        expect(afterSecond).toMatch(/\*\* 2026-08-09T17:30:00\+0000[\s\S]*Second publication\.\n$/);
+      } finally {
+        await cleanupStagedSite(second);
+      }
+    } finally {
+      await cleanupStagedSite(first);
+    }
+  });
+
+  it("leaves an existing feed untouched when Org Social is deselected", async () => {
+    const { config, entry, socialPath } = await socialFixture();
+    config.destinations.org_social = false;
+    await writeFile(path.join(config.repositoryPath, socialPath), existingSocial);
+    const staged = await stageSite(entry, config);
+    try {
+      expect(staged.generatedPaths).not.toContain(socialPath);
+      expect(await readFile(path.join(staged.repository, socialPath), "utf8")).toBe(existingSocial);
+    } finally {
+      await cleanupStagedSite(staged);
+    }
+  });
+
+  it("initializes a missing feed from opted-in history, oldest first", async () => {
+    const { config, entry, socialPath } = await socialFixture();
+    const staged = await stageSite(entry, config);
+    try {
+      const social = await readFile(path.join(staged.repository, socialPath), "utf8");
+      expect(social).toContain(`#+TITLE: ${config.org_social.title}`);
+      expect(social.match(/^\* Posts$/gm)).toHaveLength(1);
+      expect(social.match(/^\*\* /gm)).toHaveLength(2);
+      expect(social.indexOf("An old post edited in Jekyll.")).toBeLessThan(social.indexOf("A new update:"));
+      expect(social).not.toContain("Opted out.");
+    } finally {
+      await cleanupStagedSite(staged);
+    }
+  });
 });
 
 describe("Jekyll staging", () => {

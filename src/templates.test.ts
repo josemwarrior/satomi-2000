@@ -112,7 +112,7 @@ describe("derived Jekyll artifacts", () => {
     expect(social).not.toContain("The combat system works.");
   });
 
-  it("does not add entries that opted out when social.org is regenerated later", () => {
+  it("does not import entries that opted out when a missing social.org is created", () => {
     expect(renderSocialOrg([{ ...entry, orgSocial: false }], config)).not.toContain(
       "The combat system works.",
     );

@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import matter from "gray-matter";
@@ -11,6 +11,7 @@ import {
   renderPost,
   renderRss,
   renderSocialOrg,
+  renderSocialOrgPost,
 } from "./templates.js";
 import { pathExists, runCommand, safeRelativePath } from "./utils.js";
 
@@ -113,7 +114,8 @@ export async function stageSite(entry: PreparedEntry, config: ResolvedConfig): P
   if (await pathExists(path.join(config.repositoryPath, postPath))) {
     throw new ValidationError(`Microblog entry already exists: ${postPath}`);
   }
-  await writeGenerated(repository, postPath, renderPost(contentEntryFromPrepared(entry, config), config));
+  const contentEntry = contentEntryFromPrepared(entry, config);
+  await writeGenerated(repository, postPath, renderPost(contentEntry, config));
   generatedPaths.push(postPath);
   if (entry.media && entry.media.type !== "mp4" && !entry.media.external) {
     const mediaPath = path.join(config.site.media_directory, entry.media.fileName);
@@ -131,10 +133,19 @@ export async function stageSite(entry: PreparedEntry, config: ResolvedConfig): P
     [path.join(config.site.public_files_directory, "feed.json")]: renderJsonFeed(entries, config),
   };
   if (config.destinations.org_social) {
-    derived[path.join(config.site.public_files_directory, "social.org")] = renderSocialOrg(
-      entries,
-      config,
-    );
+    const socialPath = path.join(config.site.public_files_directory, "social.org");
+    safeRelativePath(socialPath, "generated path");
+    const target = path.join(repository, socialPath);
+    if (await pathExists(target)) {
+      // Preserve the existing feed, including posts and metadata authored by other clients.
+      const existing = await readFile(target, "utf8");
+      const separator = existing.endsWith("\n\n") ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
+      await appendFile(target, `${separator}${renderSocialOrgPost(contentEntry, config)}`);
+      generatedPaths.push(socialPath);
+    } else {
+      // Bootstrap a missing feed once from the opted-in Jekyll history.
+      derived[socialPath] = renderSocialOrg(entries, config);
+    }
   }
   for (const [relativePath, content] of Object.entries(derived)) {
     await writeGenerated(repository, relativePath, content);
