@@ -26,6 +26,27 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("Telegram Worker adapter", () => {
+  it("requires a Worker with replies support before starting a thread", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({
+      ok: true, result: { channelType: "channel", canPostMessages: true },
+    })));
+    await expect(validateTelegramWorker(config, credentials, true)).rejects.toThrow(/Update the Telegram Worker/);
+    vi.stubGlobal("fetch", vi.fn(async () => json({
+      ok: true, result: { channelType: "channel", canPostMessages: true, supportsReplies: true },
+    })));
+    await expect(validateTelegramWorker(config, credentials, true)).resolves.toBeUndefined();
+  });
+
+  it("passes the previous message ID to the Worker", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(json({ ok: true, result: { messageId: 43, url: "https://t.me/channel/43" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await publishTelegram({ slug: "part-two", platformPayloads: { telegram: "...rest" } } as PreparedEntry, config, credentials,
+      { root: { id: "40", url: "root" }, parent: { id: "42", url: "parent" } });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({
+      slug: "part-two", text: "...rest", replyToMessageId: 42,
+    });
+  });
+
   it("validates the configured channel without publishing", async () => {
     const fetchMock = vi.fn(async () => json({
       ok: true,

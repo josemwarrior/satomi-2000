@@ -23,14 +23,13 @@ import {
 } from "./git.js";
 import { convertGifToMp4 } from "./media.js";
 import { prepareEntry, xPayloadContainsUrl } from "./messages.js";
+import { platformChunkFits } from "./threads.js";
+import { publishThread } from "./thread-publisher.js";
 import {
   assertNotDuplicate,
   createPublicationAttempt,
-  ensureBlueskyRecordKey,
   loadState,
   makeEntryState,
-  markAttempt,
-  markFailed,
   PublishLock,
   restartPublicationAttempt,
   saveState,
@@ -51,6 +50,7 @@ import {
   type PublicationState,
   type PublishSummary,
   type ResolvedConfig,
+  type ThreadReply,
 } from "./types.js";
 import {
   commandExists,
@@ -60,7 +60,7 @@ import {
   sanitizeError,
   writeTextAtomic,
 } from "./utils.js";
-import { publishBluesky } from "./adapters/bluesky.js";
+import { publishBluesky, type BlueskySession } from "./adapters/bluesky.js";
 import { publishMastodon, validateMastodonInstance } from "./adapters/mastodon.js";
 import { publishTelegram, validateTelegramWorker } from "./adapters/telegram.js";
 import { publishX } from "./adapters/x.js";
@@ -97,7 +97,11 @@ export function validateXGuardrails(
   const x = config.platforms.x;
   const xPayload = entry.platformPayloads.x;
   if (xPayload === undefined) throw new ValidationError("X payload was not prepared.");
-  const containsUrl = xPayloadContainsUrl(xPayload);
+  const savedChunks = state.entries[entry.slug]?.platforms.x.chunks;
+  const chunks = (entry.platformChunks?.x ?? [xPayload]).filter(
+    (_, index) => savedChunks?.[index]?.status !== "published",
+  );
+  const containsUrl = chunks.some(xPayloadContainsUrl);
   if (containsUrl && !entry.forceXUrl) {
     throw new ValidationError(
       "The X payload contains a URL, which has a considerably higher configured cost. Re-run with --force-x to authorize this specific X post.",
@@ -108,25 +112,24 @@ export function validateXGuardrails(
       "WARNING: --force-x accepted; the X post contains a URL and uses the higher configured cost estimate.\n",
     );
   }
-  const estimatedCost = containsUrl
+  const estimatedCost = chunks.reduce((cost, text) => cost + (xPayloadContainsUrl(text)
     ? x.estimated_cost_with_url_usd
-    : x.estimated_cost_without_url_usd;
+    : x.estimated_cost_without_url_usd), 0);
   if (estimatedCost > x.max_estimated_cost_usd_per_run) {
     throw new ValidationError(
       `Estimated X cost $${estimatedCost.toFixed(3)} exceeds the per-run guardrail $${x.max_estimated_cost_usd_per_run.toFixed(3)}.`,
     );
   }
   const today = localDate(new Date().toISOString(), config.content.timezone);
-  const attemptsToday = Object.values(state.entries).filter((candidate) => {
+  const attemptsToday = Object.values(state.entries).reduce((total, candidate) => {
     const xState = candidate.platforms.x;
-    return (
-      xState.status !== "failed" &&
-      xState.status !== "not_started" &&
-      xState.attempted_at !== undefined &&
-      localDate(xState.attempted_at, config.content.timezone) === today
-    );
-  }).length;
-  if (attemptsToday >= x.max_posts_per_day) {
+    return total + (xState.chunks ?? [xState]).filter((part) =>
+      part.status !== "failed" && part.status !== "not_started" &&
+      part.attempted_at !== undefined &&
+      localDate(part.attempted_at, config.content.timezone) === today,
+    ).length;
+  }, 0);
+  if (attemptsToday + chunks.length > x.max_posts_per_day) {
     if (!entry.forceXUrl) {
       throw new ValidationError(
         `The local X limit of ${x.max_posts_per_day} posts per day was reached. Re-run with --force-x to bypass it.`,
@@ -143,6 +146,7 @@ async function preflight(
   config: ResolvedConfig,
   state: PublicationState,
   platforms?: PlatformName[],
+  preserveChunks = false,
 ): Promise<Credentials> {
   const selected = platforms ?? PLATFORM_NAMES.filter(
     (name) => config.destinations[name],
@@ -160,10 +164,10 @@ async function preflight(
   if (selected.includes("x")) validateXGuardrails(entry, state, config);
   const credentials = await loadCredentials(config, selected);
   if (selected.includes("mastodon") && credentials.mastodon) {
-    await validateMastodonInstance(entry, config, credentials.mastodon);
+    await validateMastodonInstance(entry, config, credentials.mastodon, preserveChunks);
   }
   if (selected.includes("telegram") && credentials.telegram) {
-    await validateTelegramWorker(config, credentials.telegram);
+    await validateTelegramWorker(config, credentials.telegram, (entry.platformChunks?.telegram?.length ?? 1) > 1);
   }
   return credentials;
 }
@@ -175,10 +179,12 @@ async function publishOne(
   credentials: Credentials,
   temporaryDirectory: string,
   blueskyRecordKey?: string,
+  reply?: ThreadReply,
+  blueskySession?: BlueskySession,
 ): Promise<PlatformResult> {
   if (platform === "mastodon") {
     if (!credentials.mastodon) throw new ValidationError("Mastodon credentials were not loaded.");
-    return await publishMastodon(entry, credentials.mastodon);
+    return await publishMastodon(entry, credentials.mastodon, reply);
   }
   if (platform === "bluesky") {
     if (!credentials.bluesky) throw new ValidationError("Bluesky credentials were not loaded.");
@@ -188,16 +194,16 @@ async function publishOne(
       : entry.media?.type === "mp4"
         ? entry.media.sourcePath
         : undefined;
-    return await publishBluesky(entry, mp4, config, credentials.bluesky, blueskyRecordKey);
+    return await publishBluesky(entry, mp4, config, credentials.bluesky, blueskyRecordKey, reply, blueskySession);
   }
   if (platform === "x") {
     if (!credentials.x) throw new ValidationError("X credentials were not loaded.");
-    return await publishX(entry, config, credentials.x);
+    return await publishX(entry, config, credentials.x, reply);
   }
   if (!credentials.telegram) {
     throw new ValidationError("Telegram credentials were not loaded.");
   }
-  return await publishTelegram(entry, config, credentials.telegram);
+  return await publishTelegram(entry, config, credentials.telegram, reply);
 }
 
 async function publishPlatforms(
@@ -210,30 +216,13 @@ async function publishPlatforms(
   temporaryDirectory: string,
 ): Promise<void> {
   for (const platform of platforms) {
-    const blueskyRecordKey = platform === "bluesky"
-      ? ensureBlueskyRecordKey(entryState)
-      : undefined;
-    markAttempt(entryState, platform);
-    await saveState(config, state);
-    try {
-      const result = await publishOne(
-        platform,
-        entry,
-        config,
-        credentials,
-        temporaryDirectory,
-        blueskyRecordKey,
-      );
-      entryState.platforms[platform] = {
-        ...entryState.platforms[platform],
-        status: "published",
-        attempted_at: entryState.platforms[platform].attempted_at ?? new Date().toISOString(),
-        ...result,
-      };
-    } catch (error) {
-      markFailed(entryState, platform, error, error instanceof AmbiguousPublishError);
-    }
-    await saveState(config, state);
+    const blueskySession: BlueskySession = {};
+    await publishThread(platform, entry, entryState,
+      (part, recordKey, reply) => publishOne(
+        platform, part, config, credentials, temporaryDirectory, recordKey, reply, blueskySession,
+      ),
+      () => saveState(config, state),
+    );
   }
 }
 
@@ -504,7 +493,17 @@ export async function retry(
         `${platform} payload changed since the original publication. Restore the original configuration before retrying.`,
       );
     }
-    const credentials = await preflight(entry, config, state, [platform]);
+    const savedChunks = platformState.chunks;
+    if (savedChunks) {
+      entry.platformChunks ??= {};
+      entry.platformChunks[platform] = savedChunks.map((chunk) => chunk.text);
+      if (savedChunks.some((chunk, index) => !platformChunkFits(
+        platform, chunk.text, config, index === 0 ? entry.media?.type : undefined,
+      ))) {
+        throw new ValidationError(`${platform}: the saved thread exceeds the current limits. Restore the original configuration.`);
+      }
+    }
+    const credentials = await preflight(entry, config, state, [platform], true);
     const deploymentTarget: { canonicalUrl: string; mediaUrl?: string } = {
       canonicalUrl: entryState.canonical_url,
     };

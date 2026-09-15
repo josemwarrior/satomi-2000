@@ -9,6 +9,7 @@ type MediaType = "gif" | "png" | "jpeg" | "webp" | "mp4";
 interface PublishRequest {
   slug: string;
   text: string;
+  replyToMessageId?: number;
   media?: {
     url: string;
     type: MediaType;
@@ -66,7 +67,7 @@ class TelegramApiError extends Error {
 }
 
 const SERVICE = "satomi-telegram";
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const MAX_BODY_BYTES = 32_768;
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 const MEDIA_TYPES = new Set<MediaType>(["gif", "png", "jpeg", "webp", "mp4"]);
@@ -170,7 +171,11 @@ function parsePublishRequest(value: unknown): PublishRequest {
       "The request body must be a JSON object.",
     );
   }
-  assertOnlyKeys(value, ["slug", "text", "media"], "request body");
+  assertOnlyKeys(value, ["slug", "text", "media", "replyToMessageId"], "request body");
+  if (value.replyToMessageId !== undefined &&
+    (typeof value.replyToMessageId !== "number" || !Number.isSafeInteger(value.replyToMessageId) || value.replyToMessageId <= 0)) {
+    throw new HttpError(400, "invalid_request", "replyToMessageId must be a positive integer.");
+  }
   if (
     typeof value.slug !== "string" ||
     value.slug.length > 200 ||
@@ -205,7 +210,11 @@ function parsePublishRequest(value: unknown): PublishRequest {
       `text cannot exceed ${maximumCharacters} characters${media ? " when used as a media caption" : ""}.`,
     );
   }
-  return media ? { slug: value.slug, text, media } : { slug: value.slug, text };
+  return {
+    slug: value.slug, text,
+    ...(media ? { media } : {}),
+    ...(value.replyToMessageId === undefined ? {} : { replyToMessageId: value.replyToMessageId as number }),
+  };
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -398,6 +407,7 @@ async function validateTelegram(env: Env): Promise<Response> {
       channelUsername: chat.username ?? null,
       channelType: chat.type,
       canPostMessages: true,
+      supportsReplies: true,
     },
   });
 }
@@ -447,6 +457,9 @@ async function publishTelegram(
     };
   }
   if (publication.media && publication.text) parameters.caption = publication.text;
+  if (publication.replyToMessageId !== undefined) {
+    parameters.reply_parameters = { message_id: publication.replyToMessageId };
+  }
   const message = await telegramCall<TelegramMessage>(env, method, parameters);
   if (!Number.isInteger(message.message_id) || !message.chat) {
     throw new HttpError(

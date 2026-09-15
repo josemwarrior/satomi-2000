@@ -3,6 +3,8 @@ import twitterText from "twitter-text";
 import { ValidationError } from "./errors.js";
 import { inspectImage, inspectRemoteImage, isRemoteImage } from "./image.js";
 import { inspectRemoteVideo } from "./video.js";
+import { buildPlatformThread } from "./threads.js";
+export { countPlatformText } from "./threads.js";
 import type {
   DraftInput,
   MediaType,
@@ -43,24 +45,17 @@ export function buildPlatformPayload(
   return sections.join("\n\n");
 }
 
-export function countPlatformText(platform: PlatformName, payload: string): number {
-  if (platform === "x") return twitterText.parseTweet(payload).weightedLength;
-  return graphemeCount(payload);
-}
-
 export function xPayloadContainsUrl(payload: string): boolean {
   return twitterText.extractUrls(payload, { extractUrlsWithoutProtocol: true }).length > 0;
 }
 
 export function effectiveLimits(config: ResolvedConfig, mediaType?: MediaType): {
-  characters: number;
   mediaMb: number;
 } {
   const platforms = (Object.keys(config.platforms) as PlatformName[])
     .filter((name) => config.destinations[name])
     .map((name) => config.platforms[name]);
   return {
-    characters: Math.min(...platforms.map((platform) => platform.max_characters)),
     mediaMb:
       mediaType === "mp4"
         ? Math.min(...platforms.map((platform) => platform.max_video_mb))
@@ -96,14 +91,6 @@ export async function prepareEntry(
   }
   if (config.validation.reject_control_characters && CONTROL_CHARACTERS.test(text)) {
     throw new ValidationError("The post text contains unsupported control characters.");
-  }
-
-  const limits = effectiveLimits(config);
-  const inputCharacters = graphemeCount(text);
-  if (inputCharacters > limits.characters) {
-    throw new ValidationError(
-      `The text contains ${inputCharacters} graphemes; the common limit is ${limits.characters}.`,
-    );
   }
 
   let media: PreparedMedia | undefined;
@@ -211,6 +198,7 @@ export async function prepareEntry(
   const tags = [...new Set((input.tags ?? config.content.default_tags).map(normalizeTag).filter(Boolean))];
   const canonicalUrl = `${joinUrl(config.site.public_url, slug)}/`;
   const platformPayloads: PreparedEntry["platformPayloads"] = {};
+  const platformChunks: NonNullable<PreparedEntry["platformChunks"]> = {};
   const payloadSha256: PreparedEntry["payloadSha256"] = {};
 
   for (const platform of Object.keys(config.platforms) as PlatformName[]) {
@@ -227,12 +215,7 @@ export async function prepareEntry(
       );
     }
     const payload = buildPlatformPayload(platform, text, tags, canonicalUrl, config);
-    const count = countPlatformText(platform, payload);
-    if (count > platformConfig.max_characters) {
-      throw new ValidationError(
-        `${platform} payload contains ${count} weighted characters; its limit is ${platformConfig.max_characters}.`,
-      );
-    }
+    platformChunks[platform] = buildPlatformThread(platform, payload, config, media?.type);
     platformPayloads[platform] = payload;
     payloadSha256[platform] = sha256(payload);
   }
@@ -251,6 +234,7 @@ export async function prepareEntry(
     canonicalUrl,
     forceXUrl: input.forceXUrl ?? false,
     platformPayloads,
+    platformChunks,
     payloadSha256,
   };
   if (alt !== undefined) entry.alt = alt;

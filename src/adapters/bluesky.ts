@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { AtpAgent, RichText, type AppBskyVideoDefs } from "@atproto/api";
 import { SatomiError } from "../errors.js";
-import type { PlatformResult, PreparedEntry, ResolvedConfig } from "../types.js";
+import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
 import { sleep } from "../utils.js";
 import { responseJson } from "./http.js";
 
@@ -10,15 +10,21 @@ interface BlueskyCredentials {
   appPassword: string;
 }
 
+export interface BlueskySession {
+  agent?: AtpAgent;
+}
+
 export async function publishBluesky(
   entry: PreparedEntry,
   mp4Path: string | undefined,
   config: ResolvedConfig,
   credentials: BlueskyCredentials,
   recordKey: string,
+  reply?: ThreadReply,
+  session: BlueskySession = {},
 ): Promise<PlatformResult> {
-  const agent = new AtpAgent({ service: "https://bsky.social" });
-  await agent.login({ identifier: credentials.handle, password: credentials.appPassword });
+  const agent = session.agent ??= new AtpAgent({ service: "https://bsky.social" });
+  if (!agent.session) await agent.login({ identifier: credentials.handle, password: credentials.appPassword });
   if (!agent.session) throw new SatomiError("Bluesky login returned no session.");
 
   let embed: Record<string, unknown> | undefined;
@@ -93,6 +99,15 @@ export async function publishBluesky(
     createdAt: entry.publishedAt,
   };
   if (embed) record.embed = embed;
+  if (reply) {
+    if (!reply.root.uri || !reply.root.cid || !reply.parent.uri || !reply.parent.cid) {
+      throw new SatomiError("Bluesky replies require the root and parent URI and CID.");
+    }
+    record.reply = {
+      root: { uri: reply.root.uri, cid: reply.root.cid },
+      parent: { uri: reply.parent.uri, cid: reply.parent.cid },
+    };
+  }
   let created;
   try {
     created = await agent.com.atproto.repo.createRecord({
@@ -101,6 +116,7 @@ export async function publishBluesky(
       rkey: recordKey,
       record,
     });
+    if (!created.data.uri || !created.data.cid) throw new SatomiError("Bluesky returned an incomplete record reference.");
   } catch (createError) {
     try {
       const existing = await agent.com.atproto.repo.getRecord({
@@ -108,8 +124,17 @@ export async function publishBluesky(
         collection: "app.bsky.feed.post",
         rkey: recordKey,
       });
-      const value = existing.data.value as { text?: unknown };
-      if (value.text !== richText.text) throw createError;
+      const value = existing.data.value as {
+        text?: unknown;
+        reply?: { root?: { uri?: string; cid?: string }; parent?: { uri?: string; cid?: string } };
+      };
+      const sameReply = reply
+        ? value.reply?.root?.uri === reply.root.uri && value.reply?.root?.cid === reply.root.cid &&
+          value.reply?.parent?.uri === reply.parent.uri && value.reply?.parent?.cid === reply.parent.cid
+        : value.reply === undefined;
+      if (value.text !== richText.text || !sameReply || !existing.data.cid || !existing.data.uri) {
+        throw createError;
+      }
       const result: PlatformResult = {
         uri: existing.data.uri,
         url: `https://bsky.app/profile/${encodeURIComponent(credentials.handle)}/post/${recordKey}`,

@@ -14,8 +14,9 @@ Node.js 22 or newer is required by the current Wrangler toolchain. The
 
 - `GET /health` is public and returns the service version.
 - `POST /validate` requires bearer authentication and verifies the bot, channel,
-  and `can_post_messages` permission without publishing.
-- `POST /publish` requires bearer authentication and publishes one entry.
+  and `can_post_messages` permission without publishing. A Worker with thread
+  support also returns `supportsReplies: true`.
+- `POST /publish` requires bearer authentication and publishes one post or thread part.
 
 The publication payload contains the final Telegram text. `text` may be empty
 when `media` is present, in which case the media is sent without a caption:
@@ -36,6 +37,27 @@ when `media` is present, in which case the media is sent without a caption:
 `sendVideo` with streaming enabled. MP4
 URLs must remain directly downloadable by Telegram and fit its remote-URL size
 limit.
+
+For a continuation, send `replyToMessageId` as a positive integer identifying
+the preceding message in this same channel. The Worker forwards it as
+`reply_parameters.message_id`; it does not fall back to an unrelated post if
+the parent is missing. Text is limited to 4096 Unicode code points, or 1024
+when attached to media. Satomi splits the draft and persists progress on the
+client, making one request per part and attaching media only to the first.
+
+```json
+{
+  "slug": "thread-continuation",
+  "text": "...and the update continues here.",
+  "replyToMessageId": 42
+}
+```
+
+Deploy this Worker before using threads from the updated CLI. Satomi checks
+`supportsReplies` during preflight so an older deployment cannot publish just
+the first part and then reject the continuation's new field. The Worker has
+no persistent deduplication store: Satomi stops after ambiguous results and
+requires reconciliation before retrying.
 
 ## Local checks
 

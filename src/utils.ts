@@ -3,14 +3,10 @@ import { access, constants, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { SatomiError } from "./errors.js";
+export { graphemeCount } from "./graphemes.js";
 
 export function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-export function graphemeCount(value: string): number {
-  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  return [...segmenter.segment(value)].length;
 }
 
 export function truncateGraphemes(value: string, maximum: number): string {

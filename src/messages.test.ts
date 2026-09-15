@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildPlatformPayload, countPlatformText, effectiveLimits, prepareEntry } from "./messages.js";
 import type { ResolvedConfig } from "./types.js";
+import { contentEntryFromPrepared, renderPost, renderSocialOrgPost } from "./templates.js";
 
 const config = {
   site: {
@@ -77,12 +78,29 @@ afterEach(async () => {
 });
 
 describe("platform messages", () => {
+  it("accepts long drafts, splits each network independently and keeps Jekyll/Org Social complete", async () => {
+    const text = "A longer update with several words. ".repeat(300).trim();
+    const entry = await prepareEntry({ text }, config);
+    expect(entry.text).toBe(text);
+    for (const platform of ["mastodon", "bluesky", "x", "telegram"] as const) {
+      expect(entry.platformChunks?.[platform]!.length).toBeGreaterThan(1);
+    }
+    expect(entry.platformChunks?.mastodon).not.toEqual(entry.platformChunks?.bluesky);
+    const fullConfig = { ...config, org_social: { default_language: "en" } } as ResolvedConfig;
+    const content = contentEntryFromPrepared(entry, fullConfig);
+    expect(renderPost(content, fullConfig)).toContain(text);
+    const org = renderSocialOrgPost(content, fullConfig);
+    expect(org).toContain(text);
+    expect(org).not.toContain(":REPLY_TO:");
+    expect(org.match(/^\*\* /gm)).toHaveLength(1);
+  });
+
   it("uses the minimum enabled limits", () => {
-    expect(effectiveLimits(config, "gif")).toEqual({ characters: 280, mediaMb: 15 });
-    expect(effectiveLimits(config, "png")).toEqual({ characters: 280, mediaMb: 2 });
-    expect(effectiveLimits(config, "jpeg")).toEqual({ characters: 280, mediaMb: 2 });
-    expect(effectiveLimits(config, "webp")).toEqual({ characters: 280, mediaMb: 2 });
-    expect(effectiveLimits(config, "mp4")).toEqual({ characters: 280, mediaMb: 20 });
+    expect(effectiveLimits(config, "gif")).toEqual({ mediaMb: 15 });
+    expect(effectiveLimits(config, "png")).toEqual({ mediaMb: 2 });
+    expect(effectiveLimits(config, "jpeg")).toEqual({ mediaMb: 2 });
+    expect(effectiveLimits(config, "webp")).toEqual({ mediaMb: 2 });
+    expect(effectiveLimits(config, "mp4")).toEqual({ mediaMb: 20 });
   });
 
   it("allows a Jekyll-only publication when every optional destination is unchecked", () => {
@@ -97,7 +115,7 @@ describe("platform messages", () => {
         telegram: false,
       },
     } as ResolvedConfig;
-    expect(effectiveLimits(jekyllOnly)).toEqual({ characters: Infinity, mediaMb: Infinity });
+    expect(effectiveLimits(jekyllOnly)).toEqual({ mediaMb: Infinity });
   });
 
   it("builds each platform payload from configuration", () => {

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishX } from "./x.js";
+import { AmbiguousPublishError } from "../errors.js";
 import type { MediaType, PreparedEntry, ResolvedConfig } from "../types.js";
 
 const temporaryPaths: string[] = [];
@@ -53,6 +54,22 @@ const config = { platforms: { x: { username: "satomi" } } } as ResolvedConfig;
 const credentials = { accessToken: "test-token" };
 
 describe("X media capabilities", () => {
+  it("sends continuation text as a reply to the preceding post", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(json({ data: { id: "124" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await publishX({ platformPayloads: { x: "...rest" } } as PreparedEntry, config, credentials,
+      { root: { id: "122", url: "root" }, parent: { id: "123", url: "parent" } });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({
+      text: "...rest", reply: { in_reply_to_tweet_id: "123" },
+    });
+  });
+
+  it("does not retry blindly when a successful response has no post ID", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ data: {} })));
+    await expect(publishX({ platformPayloads: { x: "text" } } as PreparedEntry, config, credentials))
+      .rejects.toBeInstanceOf(AmbiguousPublishError);
+  });
+
   it("skips every media endpoint for a text-only post", async () => {
     const fetchMock = vi.fn(async () => json({ data: { id: "123" } }));
     vi.stubGlobal("fetch", fetchMock);

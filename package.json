@@ -16,7 +16,8 @@
     ".env.example"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build:preview",
+    "build:preview": "node scripts/build-preview.mjs",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -48,6 +49,7 @@
   "devDependencies": {
     "@types/node": "^24.2.1",
     "@types/twitter-text": "^3.1.7",
+    "esbuild": "^0.28.1",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

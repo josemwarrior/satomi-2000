@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { SatomiError, ValidationError } from "../errors.js";
-import type { PlatformResult, PreparedEntry, ResolvedConfig } from "../types.js";
-import { graphemeCount, sleep } from "../utils.js";
+import { AmbiguousPublishError, SatomiError, ValidationError } from "../errors.js";
+import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
+import { sleep } from "../utils.js";
+import { buildPlatformThread, platformChunkFits } from "../threads.js";
 import { authorization, responseJson } from "./http.js";
 
 interface MastodonCredentials {
@@ -18,6 +19,7 @@ export async function validateMastodonInstance(
   entry: PreparedEntry,
   config: ResolvedConfig,
   credentials: MastodonCredentials,
+  preserveChunks = false,
 ): Promise<void> {
   if (!config.platforms.mastodon.check_instance_limits) return;
   const response = await fetch(`${credentials.url}/api/v2/instance`, {
@@ -26,7 +28,7 @@ export async function validateMastodonInstance(
   });
   const instance = await responseJson<{
     configuration?: {
-      statuses?: { max_characters?: number };
+      statuses?: { max_characters?: number; characters_reserved_per_url?: number };
       media_attachments?: {
         image_size_limit?: number;
         video_size_limit?: number;
@@ -42,10 +44,17 @@ export async function validateMastodonInstance(
     ? Math.min(configuredCharacters, instanceCharacters)
     : configuredCharacters;
   const payload = entry.platformPayloads.mastodon ?? "";
-  const count = graphemeCount(payload);
-  if (count > maximumCharacters) {
-    throw new ValidationError(
-      `Mastodon payload contains ${count} graphemes; the instance limit is ${maximumCharacters}.`,
+  const reserved = instance.configuration?.statuses?.characters_reserved_per_url ?? 23;
+  if (preserveChunks && entry.platformChunks?.mastodon) {
+    if (entry.platformChunks.mastodon.some((text) => !platformChunkFits(
+      "mastodon", text, config, undefined, maximumCharacters, reserved,
+    ))) {
+      throw new ValidationError("The saved Mastodon thread exceeds the current instance limit.");
+    }
+  } else {
+    entry.platformChunks ??= {};
+    entry.platformChunks.mastodon = buildPlatformThread(
+      "mastodon", payload, config, entry.media?.type, maximumCharacters, reserved,
     );
   }
   const mediaConfiguration = instance.configuration?.media_attachments;
@@ -84,6 +93,7 @@ export async function validateMastodonInstance(
 export async function publishMastodon(
   entry: PreparedEntry,
   credentials: MastodonCredentials,
+  reply?: ThreadReply,
 ): Promise<PlatformResult> {
   let mediaId: string | undefined;
   if (entry.media) {
@@ -120,20 +130,36 @@ export async function publishMastodon(
     language: entry.language,
   };
   if (mediaId) body.media_ids = [mediaId];
-  const statusResponse = await fetch(`${credentials.url}/api/v1/statuses`, {
-    method: "POST",
-    headers: {
-      ...authorization(credentials.token),
-      "Content-Type": "application/json",
-      "Idempotency-Key": entry.slug,
-      "User-Agent": "satomi/0.1",
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const status = await responseJson<{ id: string; url: string }>(
-    statusResponse,
-    "Mastodon status creation",
-  );
+  if (reply) body.in_reply_to_id = reply.parent.id;
+  let statusResponse: Response;
+  try {
+    statusResponse = await fetch(`${credentials.url}/api/v1/statuses`, {
+      method: "POST",
+      headers: {
+        ...authorization(credentials.token),
+        "Content-Type": "application/json",
+        "Idempotency-Key": entry.slug,
+        "User-Agent": "satomi/0.1",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    throw new AmbiguousPublishError("Mastodon did not confirm status creation; reconcile before retrying.");
+  }
+  if (statusResponse.status >= 500) {
+    throw new AmbiguousPublishError(`Mastodon returned ${statusResponse.status} after status creation.`);
+  }
+  if (!statusResponse.ok) await responseJson(statusResponse, "Mastodon status creation");
+  let status: { id: string; url: string };
+  try {
+    status = await responseJson<{ id: string; url: string }>(
+      statusResponse,
+      "Mastodon status creation",
+    );
+    if (!status.id || !status.url) throw new Error("Missing status result");
+  } catch {
+    throw new AmbiguousPublishError("Mastodon returned an invalid status result; reconcile before retrying.");
+  }
   return { id: status.id, url: status.url };
 }

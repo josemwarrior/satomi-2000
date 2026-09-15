@@ -76,6 +76,7 @@ export interface PreparedEntry {
   canonicalUrl: string;
   forceXUrl: boolean;
   platformPayloads: Partial<Record<PlatformName, string>>;
+  platformChunks?: Partial<Record<PlatformName, string[]>>;
   payloadSha256: Partial<Record<PlatformName, string>>;
 }
 
@@ -88,6 +89,16 @@ export interface PlatformState {
   cid?: string;
   url?: string;
   error?: string;
+  chunks?: PlatformChunkState[];
+}
+
+export interface PlatformChunkState extends Omit<PlatformState, "chunks"> {
+  text: string;
+}
+
+export interface ThreadReply {
+  root: PlatformResult;
+  parent: PlatformResult;
 }
 
 export interface EntryState {

@@ -128,6 +128,9 @@ function printSummary(summary: PublishSummary): void {
       failed = true;
       console.log(`${`${label}:`.padEnd(10)}${state.status}: ${state.error ?? "no details"}`);
     }
+    if (state.chunks && state.chunks.length > 1) {
+      console.log(`          ${state.chunks.filter((chunk) => chunk.status === "published").length}/${state.chunks.length} thread posts published`);
+    }
   }
   if (failed) process.exitCode = 2;
 }
@@ -237,6 +240,9 @@ addDraftOptions(
   const draft = await obtainDraft(options);
   const entry = await validateDraft(draft, resolved);
   console.log(`Validation passed: ${entry.slug}`);
+  for (const [platform, chunks] of Object.entries(entry.platformChunks ?? {})) {
+    console.log(`${platform}: ${chunks.length} post${chunks.length === 1 ? "" : "s"}`);
+  }
 });
 
 program

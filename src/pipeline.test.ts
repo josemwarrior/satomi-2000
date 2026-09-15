@@ -26,6 +26,40 @@ afterEach(async () => {
 });
 
 describe("X guardrails", () => {
+  it("adds the cost of all pending thread posts, including each URL", () => {
+    const entry = {
+      slug: "thread", platformPayloads: { x: "full" },
+      platformChunks: { x: ["https://one.example.com", "https://two.example.com"] }, forceXUrl: true,
+    } as PreparedEntry;
+    const warning = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    expect(() => validateXGuardrails(entry, emptyState(), config)).toThrow(/per-run guardrail/);
+    warning.mockRestore();
+  });
+
+  it("checks the entire thread against the remaining daily allowance", () => {
+    const entry = {
+      platformPayloads: { x: "full" }, platformChunks: { x: ["one...", "...two...", "...three"] },
+    } as PreparedEntry;
+    expect(() => validateXGuardrails(entry, emptyState(), config)).toThrow(/local X limit/);
+  });
+
+  it("counts confirmed parts of failed threads and charges a retry only for remaining posts", () => {
+    const state = emptyState();
+    state.entries.thread = {
+      platforms: { x: { status: "failed", chunks: [
+        { text: "https://example.com", status: "published", attempted_at: new Date().toISOString() },
+        { text: "...rest", status: "failed", attempted_at: new Date().toISOString() },
+      ] } },
+    } as typeof state.entries[string];
+    const entry = {
+      slug: "thread", platformPayloads: { x: "https://example.com rest" },
+      platformChunks: { x: ["https://example.com", "...rest"] }, forceXUrl: false,
+    } as PreparedEntry;
+    expect(() => validateXGuardrails(entry, state, config)).not.toThrow();
+    entry.platformChunks!.x!.push("...another");
+    expect(() => validateXGuardrails(entry, state, config)).toThrow(/local X limit/);
+  });
+
   it("rejects a URL unless the specific force flag was supplied", () => {
     const entry = {
       platformPayloads: { x: "A costly link example.com" },

@@ -47,6 +47,48 @@ Need another option? Run `satomi --help`.
 
 Bare `https://` and `http://` links in post text become explicit `[[URL][URL]]` text links in `social.org`. Existing links and code are preserved. An explicit `org_social_text` override is used unchanged.
 
+## Long posts and automatic threads
+
+Open `preview.html` from the repository root directly in your browser to try the splitter. Write plain text on the left and switch network tabs to inspect the read-only parts on the right. Everything runs locally, with no server or Internet connection. Per-post limits are adjustable; Telegram also lets you preview a first part with media. The HTML bundles the same `src/threads.ts` implementation used by the CLI, including X's weighted counting. `npm run build` refreshes it automatically; `npm run build:preview` refreshes just this tool.
+
+There is no limit on the complete draft's length. Jekyll, RSS, JSON Feed and Org Social keep the complete post. Satomi independently divides each social payload (including its configured tags and canonical URL) into as many posts as needed.
+
+Cuts occur between whole words. Satomi reserves space for three literal dots at every continuation:
+
+```text
+First part of the post...
+...the next part continues...
+...and this is the last part.
+```
+
+No part numbers are added. Spaces and paragraphs within a part are preserved; whitespace at a cut is trimmed. Media and its alternative text appear only on the first part. Tags and the canonical URL are appended once to the complete payload before splitting.
+
+`platforms.<name>.max_characters` now controls each part, not the draft. A smaller configured value is respected; raising it does not bypass the native X, Bluesky or Telegram limits. A single word or URL that cannot fit with the required dots produces an explanation before publication: Satomi never truncates it or cuts it in half.
+
+### API support
+
+References checked on September 15, 2026:
+
+| Destination | How continuations are linked | Limit per part |
+| --- | --- | --- |
+| Mastodon | `POST /api/v1/statuses` with `in_reply_to_id` pointing to the previous part. [Statuses API](https://docs.joinmastodon.org/methods/statuses/) | Configured limit, reduced to the instance's advertised limit during preflight. URL counting uses its reserved URL length. [Instance configuration](https://docs.joinmastodon.org/entities/Instance/) |
+| Bluesky | Each `app.bsky.feed.post` record references the first part in `reply.root` and the previous part in `reply.parent`, both with URI and CID. | 300 graphemes and 3000 UTF-8 bytes. [Post lexicon](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/feed/post.json) |
+| X | `POST /2/tweets` with `reply.in_reply_to_tweet_id`. [Manage Posts](https://docs.x.com/x-api/posts/manage-tweets/introduction) | 280 weighted characters, including X's URL weighting. [Character counting](https://docs.x.com/fundamentals/counting-characters) |
+| Telegram | The Worker sends each continuation with `reply_parameters.message_id` in the same channel. These are linked channel messages; no separate forum topic is created. | 4096 characters for text; 1024 for the first part when used as a media caption. [Bot API](https://core.telegram.org/bots/api#sendmessage) |
+| Org Social | Supports `REPLY_TO`, but Satomi keeps a single complete post here as no protocol length limit requires splitting. [Specification](https://org-social.org/docs.html) | No configured text cap. |
+
+X's current documentation also restricts replies for self-serve accounts to cases where the original author mentioned or quoted the replying account. It advertises thread creation but does not explicitly clarify the self-reply exception. Satomi implements native self-replies; account eligibility has to be confirmed with X. A rejection stops that network's thread and retains the confirmed parts. [X reply restrictions](https://docs.x.com/x-api/posts/manage-tweets/introduction)
+
+X's local daily allowance and cost guardrail count every pending part, with the URL cost applied only to parts containing URLs. `--force-x` authorizes URLs and bypasses the daily allowance; the configured cost ceiling still applies to the sum. The legacy `max_posts_per_run: 1` field is accepted but no longer limits threads.
+
+### Deployment and recovery
+
+Update the Telegram Worker from `telegram_bot/` before publishing Telegram threads. Its `/validate` response must advertise `supportsReplies: true`; older Workers still work for single posts. Existing configurations with `telegram.max_characters: 1024` keep that smaller per-part limit; change it to `4096` to use the full text-message allowance.
+
+`satomi validate -t "..."` checks the draft and shows the number of posts for each network without publishing. Publication summaries show progress and link to the first part. Each part's text, status, remote reference and Bluesky record key are saved locally. `satomi retry` continues from the failed part with the original cuts, skipping confirmed parts. An uncertain write remains blocked until manually reconciled to prevent duplicate posts. API rate limits may interrupt a long thread; confirmed parts remain available for recovery.
+
+Telegram continuations are spaced by one second to follow its [per-chat rate recommendation](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this).
+
 ## How Org Social is updated
 
 When Org Social is selected, Satomi appends only the new post to the end of the existing `social.org`. The header, previous posts, replies, reactions, and manual edits are preserved exactly. Posts created with other clients do not need a matching Jekyll entry to survive the next publication. Keep the local file up to date with those changes before publishing.

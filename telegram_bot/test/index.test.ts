@@ -52,7 +52,7 @@ describe("satomi Telegram Worker", () => {
     expect(await responseBody(response)).toEqual({
       ok: true,
       service: "satomi-telegram",
-      version: "0.1.0",
+      version: "0.2.0",
     });
     expect(telegramFetch).not.toHaveBeenCalled();
   });
@@ -61,6 +61,23 @@ describe("satomi Telegram Worker", () => {
     const response = await worker.fetch(request("/unknown"), env);
     expect(response.status).toBe(404);
     expect((await responseBody(response)).error.code).toBe("not_found");
+  });
+
+  it("forwards a thread reply to Telegram without silently allowing a missing parent", async () => {
+    telegramFetch.mockResolvedValue(telegramResponse({ message_id: 43, chat: { id: -100123456, type: "channel", username: "satomi" } }));
+    const response = await worker.fetch(authorizedPost("/publish", {
+      slug: "part-two", text: "...rest", replyToMessageId: 42,
+    }), env);
+    expect(response.status).toBe(200);
+    expect(JSON.parse(String(telegramFetch.mock.calls[0]![1]!.body))).toEqual({
+      chat_id: env.TELEGRAM_CHANNEL_ID, text: "...rest", reply_parameters: { message_id: 42 },
+    });
+  });
+
+  it.each([0, -1, 1.2, "42", null])("rejects invalid reply ID %s before publishing", async (replyToMessageId) => {
+    const response = await worker.fetch(authorizedPost("/publish", { slug: "reply", text: "...rest", replyToMessageId }), env);
+    expect(response.status).toBe(400);
+    expect(telegramFetch).not.toHaveBeenCalled();
   });
 
   it("requires bearer authentication for protected endpoints", async () => {
@@ -100,6 +117,7 @@ describe("satomi Telegram Worker", () => {
         channelUsername: "satomi_channel",
         channelType: "channel",
         canPostMessages: true,
+        supportsReplies: true,
       },
     });
     expect(telegramFetch).toHaveBeenCalledTimes(3);

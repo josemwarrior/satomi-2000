@@ -141,7 +141,8 @@ export const configSchema = z
         username: z.string().min(1),
         oauth_callback_url: xOAuthCallbackUrl.default("http://127.0.0.1:3000/callback"),
         oauth_timeout_seconds: z.number().int().positive().default(180),
-        max_posts_per_run: z.literal(1).default(1),
+        // Legacy field accepted for old configurations; threads are limited by the cost guardrail.
+        max_posts_per_run: z.number().int().positive().optional(),
         max_posts_per_day: z.number().int().positive(),
         max_estimated_cost_usd_per_run: z.number().nonnegative(),
         estimated_cost_without_url_usd: z.number().nonnegative(),
@@ -153,7 +154,7 @@ export const configSchema = z
         worker_url: telegramWorkerUrl.optional(),
         timeout_seconds: z.number().int().positive().default(30),
       }).default({
-        max_characters: 1_024,
+        max_characters: 4_096,
         max_gif_mb: 50,
         max_png_mb: 10,
         max_video_mb: 20,

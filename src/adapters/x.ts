@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { AmbiguousPublishError, SatomiError } from "../errors.js";
-import type { PlatformResult, PreparedEntry, ResolvedConfig } from "../types.js";
+import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
 import { sleep } from "../utils.js";
 import { authorization, responseJson } from "./http.js";
 
@@ -144,12 +144,14 @@ export async function publishX(
   entry: PreparedEntry,
   config: ResolvedConfig,
   credentials: XCredentials,
+  reply?: ThreadReply,
 ): Promise<PlatformResult> {
   const mediaId = entry.media ? await uploadMedia(entry, credentials.accessToken) : undefined;
   const body: Record<string, unknown> = {};
   const text = entry.platformPayloads.x ?? entry.text;
   if (text || !mediaId) body.text = text;
   if (mediaId) body.media = { media_ids: [mediaId] };
+  if (reply) body.reply = { in_reply_to_tweet_id: reply.parent.id };
   let response: Response;
   try {
     response = await fetch("https://api.x.com/2/tweets", {
@@ -172,8 +174,15 @@ export async function publishX(
       `X returned ${response.status} after the create request; reconcile the account before retrying.`,
     );
   }
-  const created = await responseJson<{ data: { id: string } }>(response, "X post creation");
-  const id = created.data.id;
+  if (!response.ok) await responseJson(response, "X post creation");
+  let id: string;
+  try {
+    const created = await responseJson<{ data: { id: string } }>(response, "X post creation");
+    id = created.data.id;
+    if (!id) throw new Error("Missing post ID");
+  } catch {
+    throw new AmbiguousPublishError("X returned an invalid post result; reconcile before retrying.");
+  }
   return {
     id,
     url: `https://x.com/${encodeURIComponent(config.platforms.x.username)}/status/${id}`,

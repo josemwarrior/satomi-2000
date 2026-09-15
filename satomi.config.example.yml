@@ -80,6 +80,7 @@ jekyll:
   output_directory: _site
 
 platforms:
+  # max_characters limits each thread part, never the complete draft.
   mastodon:
     max_characters: 500
     max_gif_mb: 16
@@ -116,7 +117,7 @@ platforms:
     append_canonical_url: false
     include_tags: true
     upload_native_media: true
-    max_posts_per_run: 1
+    # Daily counts and cost estimates include every post in a thread.
     max_posts_per_day: 2
     max_estimated_cost_usd_per_run: 0.25
     estimated_cost_without_url_usd: 0.015
@@ -126,8 +127,8 @@ platforms:
   telegram:
     # Public URL of the authenticated Cloudflare Worker gateway.
     worker_url: https://satomi-telegram.example.workers.dev
-    # Telegram media captions allow at most 1024 characters.
-    max_characters: 1024
+    # Text messages allow 4096; the first part with media is capped at 1024.
+    max_characters: 4096
     max_gif_mb: 50
     # Shared conservative limit for PNG, JPEG, and WebP.
     max_png_mb: 10

@@ -79,7 +79,7 @@ describe("private configuration", () => {
     const config = await loadConfig(configPath);
     expect(config.destinations.telegram).toBe(false);
     expect(config.platforms.telegram.worker_url).toBeUndefined();
-    expect(config.platforms.telegram.max_characters).toBe(1_024);
+    expect(config.platforms.telegram.max_characters).toBe(4_096);
   });
 
   it("requires a Worker URL when Telegram is enabled", async () => {

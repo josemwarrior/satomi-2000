@@ -102,6 +102,10 @@ export function makeEntryState(entry: PreparedEntry, config: ResolvedConfig): En
     platforms[name] = {
       status: config.destinations[name] ? "pending" : "not_started",
     };
+    const chunks = entry.platformChunks?.[name];
+    if (config.destinations[name] && chunks) {
+      platforms[name].chunks = chunks.map((text) => ({ text, status: "not_started" }));
+    }
   }
   const result: EntryState = {
     content_sha256: entry.contentSha256,

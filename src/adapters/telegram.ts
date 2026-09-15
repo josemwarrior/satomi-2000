@@ -1,5 +1,5 @@
 import { AmbiguousPublishError, SatomiError, ValidationError } from "../errors.js";
-import type { PlatformResult, PreparedEntry, ResolvedConfig } from "../types.js";
+import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
 
 interface TelegramWorkerCredentials {
   workerToken: string;
@@ -22,6 +22,7 @@ interface WorkerSuccessBody<T> {
 interface ValidationResult {
   channelType?: unknown;
   canPostMessages?: unknown;
+  supportsReplies?: unknown;
 }
 
 interface PublishResult {
@@ -127,6 +128,7 @@ async function callWorker<T>(
 export async function validateTelegramWorker(
   config: ResolvedConfig,
   credentials: TelegramWorkerCredentials,
+  requireReplies = false,
 ): Promise<void> {
   const result = await callWorker<ValidationResult>("/validate", config, credentials);
   if (result.channelType !== "channel" || result.canPostMessages !== true) {
@@ -134,17 +136,22 @@ export async function validateTelegramWorker(
       "The Telegram Worker did not confirm a channel with posting permission.",
     );
   }
+  if (requireReplies && result.supportsReplies !== true) {
+    throw new ValidationError("Update the Telegram Worker before publishing threads: reply support is missing.");
+  }
 }
 
 export async function publishTelegram(
   entry: PreparedEntry,
   config: ResolvedConfig,
   credentials: TelegramWorkerCredentials,
+  reply?: ThreadReply,
 ): Promise<PlatformResult> {
   const body: Record<string, unknown> = {
     slug: entry.slug,
     text: entry.platformPayloads.telegram ?? entry.text,
   };
+  if (reply) body.replyToMessageId = Number(reply.parent.id);
   if (entry.media) {
     body.media = {
       url: entry.media.publicUrl,
