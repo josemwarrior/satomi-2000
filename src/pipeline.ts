@@ -441,6 +441,58 @@ function rebuildEntryForRetry(
   return prepareEntry(input, config, new Date(entryState.published_at), temporaryDirectory);
 }
 
+async function prepareSavedEntry(
+  slug: string,
+  entryState: EntryState,
+  platforms: PlatformName[],
+  config: ResolvedConfig,
+  forceXUrl: boolean,
+  temporaryDirectory: string,
+): Promise<PreparedEntry> {
+  const videoUrl = entryState.media_type === "mp4" ? entryState.media_url : undefined;
+  if (entryState.media_type === "mp4" && !videoUrl) {
+    throw new ValidationError(`Stored video URL not found for: ${slug}`);
+  }
+  const imagePath = entryState.media_type !== "mp4" && entryState.repository_media_path
+    ? path.join(config.repositoryPath, entryState.repository_media_path)
+    : entryState.media_type !== "mp4" ? entryState.media_url : undefined;
+  if (imagePath && !isRemoteImage(imagePath) && !(await pathExists(imagePath))) {
+    throw new ValidationError(`Stored image not found: ${imagePath}`);
+  }
+  const entry = await rebuildEntryForRetry(
+    slug,
+    entryState,
+    imagePath,
+    videoUrl,
+    config,
+    forceXUrl,
+    temporaryDirectory,
+  );
+  if (entry.media?.sha256 !== (entryState.media_sha256 ?? entryState.gif_sha256)) {
+    throw new ValidationError(
+      "Media content changed since the original publication; refusing an unsafe retry.",
+    );
+  }
+  for (const platform of platforms) {
+    if (entry.payloadSha256[platform] !== entryState.payload_sha256[platform]) {
+      throw new ValidationError(
+        `${platform} payload changed since the original publication. Restore the original configuration before retrying.`,
+      );
+    }
+    const savedChunks = entryState.platforms[platform].chunks;
+    if (savedChunks) {
+      entry.platformChunks ??= {};
+      entry.platformChunks[platform] = savedChunks.map((chunk) => chunk.text);
+      if (savedChunks.some((chunk, index) => !platformChunkFits(
+        platform, chunk.text, config, index === 0 ? entry.media?.type : undefined,
+      ))) {
+        throw new ValidationError(`${platform}: the saved thread exceeds the current limits. Restore the original configuration.`);
+      }
+    }
+  }
+  return entry;
+}
+
 export async function retry(
   slug: string,
   platform: PlatformName,
@@ -463,46 +515,10 @@ export async function retry(
         `${platform} has status ${platformState.status}; only failed platforms can be retried.${guidance}`,
       );
     }
-    const videoUrl = entryState.media_type === "mp4" ? entryState.media_url : undefined;
-    if (entryState.media_type === "mp4" && !videoUrl) {
-      throw new ValidationError(`Stored video URL not found for: ${slug}`);
-    }
-    const imagePath = entryState.media_type !== "mp4" && entryState.repository_media_path
-      ? path.join(config.repositoryPath, entryState.repository_media_path)
-      : entryState.media_type !== "mp4" ? entryState.media_url : undefined;
-    if (imagePath && !isRemoteImage(imagePath) && !(await pathExists(imagePath))) {
-      throw new ValidationError(`Stored image not found: ${imagePath}`);
-    }
     temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-retry-"));
-    const entry = await rebuildEntryForRetry(
-      slug,
-      entryState,
-      imagePath,
-      videoUrl,
-      config,
-      options.forceXUrl ?? false,
-      temporaryDirectory,
+    const entry = await prepareSavedEntry(
+      slug, entryState, [platform], config, options.forceXUrl ?? false, temporaryDirectory,
     );
-    if (entry.media?.sha256 !== (entryState.media_sha256 ?? entryState.gif_sha256)) {
-      throw new ValidationError(
-        "Media content changed since the original publication; refusing an unsafe retry.",
-      );
-    }
-    if (entry.payloadSha256[platform] !== entryState.payload_sha256[platform]) {
-      throw new ValidationError(
-        `${platform} payload changed since the original publication. Restore the original configuration before retrying.`,
-      );
-    }
-    const savedChunks = platformState.chunks;
-    if (savedChunks) {
-      entry.platformChunks ??= {};
-      entry.platformChunks[platform] = savedChunks.map((chunk) => chunk.text);
-      if (savedChunks.some((chunk, index) => !platformChunkFits(
-        platform, chunk.text, config, index === 0 ? entry.media?.type : undefined,
-      ))) {
-        throw new ValidationError(`${platform}: the saved thread exceeds the current limits. Restore the original configuration.`);
-      }
-    }
     const credentials = await preflight(entry, config, state, [platform], true);
     const deploymentTarget: { canonicalUrl: string; mediaUrl?: string } = {
       canonicalUrl: entryState.canonical_url,
@@ -537,6 +553,100 @@ export async function retry(
     };
     if (entryState.org_social_url) summary.orgSocial = entryState.org_social_url;
     return summary;
+  } finally {
+    if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+    await lock.release();
+  }
+}
+
+function canResumeBeforePlatforms(attempt: PublicationAttempt, entry: EntryState | undefined): boolean {
+  if (!entry || attempt.status !== "failed" || !["push", "deployment"].includes(attempt.phase)) return false;
+  const untouched = (part: PlatformState): boolean =>
+    !part.attempted_at && !part.id && !part.uri && !part.cid && !part.url && !part.rkey &&
+    !part.error;
+  return PLATFORM_NAMES.every((platform) => {
+    const saved = entry.platforms[platform];
+    return ["pending", "not_started"].includes(saved.status) && untouched(saved) &&
+      (saved.chunks ?? []).every((chunk) => chunk.status === "not_started" && untouched(chunk));
+  });
+}
+
+async function resumeBeforePlatforms(
+  identifier: string,
+  config: ResolvedConfig,
+  forceXUrl: boolean,
+): Promise<PublishSummary> {
+  const lock = new PublishLock(config.lockPath);
+  await lock.acquire();
+  let temporaryDirectory: string | undefined;
+  let state: PublicationState | undefined;
+  let attempt: PublicationAttempt | undefined;
+  let resumed = false;
+  try {
+    state = await loadState(config);
+    attempt = state.attempts?.[identifier];
+    const slug = attempt?.slug;
+    const entryState = slug ? state.entries[slug] : undefined;
+    if (!attempt || !slug || !entryState || !canResumeBeforePlatforms(attempt, entryState)) {
+      throw new ValidationError(`Attempt ${identifier} cannot safely resume before social publishing.`);
+    }
+    const originalDestinations = attempt.destinations;
+    const recoveryConfig = originalDestinations
+      ? { ...config, destinations: { ...originalDestinations } }
+      : config;
+    // Older attempts may lack destination snapshots; only resume their prepared networks.
+    const platforms = PLATFORM_NAMES.filter((platform) => originalDestinations
+      ? originalDestinations[platform]
+      : recoveryConfig.destinations[platform] && entryState.payload_sha256[platform] !== undefined,
+    );
+    temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-resume-"));
+    const entry = await prepareSavedEntry(
+      slug, entryState, platforms, recoveryConfig, forceXUrl, temporaryDirectory,
+    );
+    const credentials = await preflight(entry, recoveryConfig, state, platforms, true);
+    attempt.status = "running";
+    attempt.retryable = false;
+    delete attempt.error;
+    resumed = true;
+    // Repeat the push safely, then verify the existing page before any social write.
+    updatePublicationAttempt(attempt, "push");
+    await saveState(config, state);
+    await pushBranch(recoveryConfig);
+    updatePublicationAttempt(attempt, "deployment");
+    await saveState(config, state);
+    await waitForDeployment({
+      canonicalUrl: entryState.canonical_url,
+      ...(entryState.media_url ? { mediaUrl: entryState.media_url } : {}),
+    }, recoveryConfig);
+    updatePublicationAttempt(attempt, "platforms");
+    await saveState(config, state);
+    await publishPlatforms(entry, entryState, state, recoveryConfig, credentials, platforms, temporaryDirectory);
+    updatePublicationAttempt(attempt, "syndication");
+    await saveState(config, state);
+    await updatePublicSyndication(slug, state, recoveryConfig);
+    const statuses = platforms.map((platform) => entryState.platforms[platform].status);
+    attempt.status = statuses.includes("unknown")
+      ? "unknown"
+      : statuses.includes("failed") ? "partial" : "published";
+    attempt.retryable = statuses.includes("failed");
+    updatePublicationAttempt(attempt, "complete");
+    await saveState(config, state);
+    return {
+      attemptId: identifier, slug, web: entryState.canonical_url, platforms: entryState.platforms,
+      ...(entryState.org_social_url ? { orgSocial: entryState.org_social_url } : {}),
+    };
+  } catch (error) {
+    if (state && attempt && resumed) {
+      attempt.status = "failed";
+      attempt.error = sanitizeError(error);
+      attempt.updated_at = new Date().toISOString();
+      try {
+        await saveState(config, state);
+      } catch {
+        // Preserve the original error if recovery persistence also fails.
+      }
+    }
+    throw error;
   } finally {
     if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
     await lock.release();
@@ -580,7 +690,9 @@ export async function publicationHistory(
     if (attempt.slug && entry) representedSlugs.add(attempt.slug);
     const failedPlatforms = retryablePlatforms(entry);
     let nextCommand = "-";
-    if (attempt.status === "failed" && attempt.retryable) {
+    if (canResumeBeforePlatforms(attempt, entry)) {
+      nextCommand = `retry ${attempt.id}`;
+    } else if (attempt.status === "failed" && attempt.retryable) {
       nextCommand = attempt.worktree_files?.length ? `resolve ${attempt.id}` : `retry ${attempt.id}`;
     } else if (failedPlatforms.length === 1) {
       nextCommand = `retry ${attempt.id} --platform ${failedPlatforms[0]}`;
@@ -646,6 +758,12 @@ export async function retryPublication(
   }
 
   const entry = attempt.slug ? state.entries[attempt.slug] : undefined;
+  if (canResumeBeforePlatforms(attempt, entry)) {
+    if (platform) {
+      throw new ValidationError(`Run satomi retry ${identifier} without --platform to resume the interrupted publication.`);
+    }
+    return await resumeBeforePlatforms(identifier, config, options.forceXUrl ?? false);
+  }
   if (entry) {
     const failedPlatforms = retryablePlatforms(entry);
     const selectedPlatform = platform ?? (failedPlatforms.length === 1 ? failedPlatforms[0] : undefined);

@@ -87,6 +87,10 @@ Update the Telegram Worker from `telegram_bot/` before publishing Telegram threa
 
 `satomi validate -t "..."` checks the draft and shows the number of posts for each network without publishing. Publication summaries show progress and link to the first part. Each part's text, status, remote reference and Bluesky record key are saved locally. `satomi retry` continues from the failed part with the original cuts, skipping confirmed parts. An uncertain write remains blocked until manually reconciled to prevent duplicate posts. API rate limits may interrupt a long thread; confirmed parts remain available for recovery.
 
+If Git push fails after the blog commit, or deployment times out before social publishing starts, resolve the Git/deployment problem and run `satomi retry A000001` (replace the ID with the one in `satomi history`). Satomi sends the existing commit, waits for the public page and media, and then publishes to the original social destinations. It keeps the same blog entry, image, and saved thread cuts. Existing failed attempts showing `manual-check` for these phases are also supported; no state-file edits are needed. Any evidence of an earlier social request keeps this recovery blocked.
+
+For failures after social publishing has started, use the per-platform retry command shown by `satomi history`. Pending or unknown writes still require manual reconciliation.
+
 Telegram continuations are spaced by one second to follow its [per-chat rate recommendation](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this).
 
 ## How Org Social is updated
