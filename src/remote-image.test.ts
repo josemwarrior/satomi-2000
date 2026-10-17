@@ -111,6 +111,8 @@ it("preserves external media in Jekyll, feeds and state without copying assets",
 
 it("retries using the original external URL and refuses changed content", async () => {
   const { config, entry } = await fixture();
+  // This media-integrity fixture has no Git repository or remote.
+  config.git.push = false;
   const state = emptyState();
   state.entries[entry.slug] = makeEntryState(entry, config);
   state.entries[entry.slug]!.platforms.mastodon.status = "failed";

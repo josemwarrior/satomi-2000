@@ -66,6 +66,37 @@ export async function listWorktreeChanges(config: ResolvedConfig): Promise<strin
   return [...new Set(paths)];
 }
 
+export async function synchronizeRepository(config: ResolvedConfig): Promise<void> {
+  if (!config.git.push) return;
+  await validateGitRepository(config);
+  const options = { cwd: config.repositoryPath };
+  const remoteBranch = `refs/remotes/origin/${config.site.branch}`;
+  await runCommand("git", [
+    "fetch", "--no-tags", "origin",
+    `+refs/heads/${config.site.branch}:${remoteBranch}`,
+  ], options);
+  const remoteIncluded = await runCommand(
+    "git", ["merge-base", "--is-ancestor", remoteBranch, "HEAD"],
+    { ...options, allowFailure: true },
+  );
+  if (remoteIncluded.exitCode === 0) return;
+  const canFastForward = await runCommand(
+    "git", ["merge-base", "--is-ancestor", "HEAD", remoteBranch],
+    { ...options, allowFailure: true },
+  );
+  if (canFastForward.exitCode !== 0) {
+    throw new ValidationError(
+      `Local branch ${config.site.branch} and origin/${config.site.branch} have diverged. Integrate the remote changes manually before publishing.`,
+    );
+  }
+  if ((await listWorktreeChanges(config)).length > 0) {
+    throw new ValidationError(
+      "Remote changes are available, but the blog repository has local changes. Commit or move them aside before retrying; Satomi will not stash them automatically.",
+    );
+  }
+  await runCommand("git", ["merge", "--ff-only", "--no-autostash", remoteBranch], options);
+}
+
 export async function commitLocalChanges(
   files: string[],
   attemptId: string,

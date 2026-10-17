@@ -83,6 +83,10 @@ X's local daily allowance and cost guardrail count every pending part, with the 
 
 ### Deployment and recovery
 
+Before `post` or `retry`, installations with `git.push: true` fetch the configured branch from `origin` and update the local files with a fast-forward before preparing the site or publishing to social networks. Changes made by other clients, including edits to `social.org`, are included automatically. A local branch ahead of the remote keeps its commits. Diverged branches, or local changes that prevent the update, stop publication with an explanation; Satomi does not merge, rebase, or stash automatically. With `git.push: false`, no synchronization is performed. `validate`, `preview`, `history`, and `status` do not synchronize the repository.
+
+A remote update arriving after synchronization can still cause push rejection. The existing recovery command applies after reconciling that change.
+
 Update the Telegram Worker from `telegram_bot/` before publishing Telegram threads. Its `/validate` response must advertise `supportsReplies: true`; older Workers still work for single posts. Existing configurations with `telegram.max_characters: 1024` keep that smaller per-part limit; change it to `4096` to use the full text-message allowance.
 
 `satomi validate -t "..."` checks the draft and shows the number of posts for each network without publishing. Publication summaries show progress and link to the first part. Each part's text, status, remote reference and Bluesky record key are saved locally. `satomi retry` continues from the failed part with the original cuts, skipping confirmed parts. An uncertain write remains blocked until manually reconciled to prevent duplicate posts. API rate limits may interrupt a long thread; confirmed parts remain available for recovery.
@@ -95,7 +99,7 @@ Telegram continuations are spaced by one second to follow its [per-chat rate rec
 
 ## How Org Social is updated
 
-When Org Social is selected, Satomi appends only the new post to the end of the existing `social.org`. The header, previous posts, replies, reactions, and manual edits are preserved exactly. Posts created with other clients do not need a matching Jekyll entry to survive the next publication. Keep the local file up to date with those changes before publishing.
+When Org Social is selected, Satomi appends only the new post to the end of the existing `social.org`. The header, previous posts, replies, reactions, and manual edits are preserved exactly. Posts created with other clients do not need a matching Jekyll entry to survive the next publication. With `git.push: true`, Satomi updates the local repository from `origin` before appending the new entry.
 
 RSS and JSON Feed are still regenerated from the Jekyll entries. Editing or deleting an old Jekyll entry no longer changes `social.org`; edit the Org file directly when needed. Profile settings in the configuration initialize a missing file; update an existing profile in `social.org` itself. New posts still use `org_social.default_language`.
 

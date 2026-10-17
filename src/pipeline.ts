@@ -19,6 +19,7 @@ import {
   commitMetadataFile,
   listWorktreeChanges,
   pushBranch,
+  synchronizeRepository,
   validateGitRepository,
 } from "./git.js";
 import { convertGifToMp4 } from "./media.js";
@@ -318,6 +319,7 @@ export async function publish(
 
     updatePublicationAttempt(publicationAttempt, "preflight");
     await saveState(config, state);
+    await synchronizeRepository(config);
     const credentials = await preflight(entry, config, state);
 
     updatePublicationAttempt(publicationAttempt, "staging");
@@ -515,6 +517,7 @@ export async function retry(
         `${platform} has status ${platformState.status}; only failed platforms can be retried.${guidance}`,
       );
     }
+    await synchronizeRepository(config);
     temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-retry-"));
     const entry = await prepareSavedEntry(
       slug, entryState, [platform], config, options.forceXUrl ?? false, temporaryDirectory,
@@ -599,6 +602,7 @@ async function resumeBeforePlatforms(
       ? originalDestinations[platform]
       : recoveryConfig.destinations[platform] && entryState.payload_sha256[platform] !== undefined,
     );
+    await synchronizeRepository(recoveryConfig);
     temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "satomi-resume-"));
     const entry = await prepareSavedEntry(
       slug, entryState, platforms, recoveryConfig, forceXUrl, temporaryDirectory,

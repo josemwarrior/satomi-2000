@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import YAML from "yaml";
@@ -24,6 +24,13 @@ async function interruptedPublication() {
     ["init", "-b", "main"], ["config", "user.name", "Satomi Test"],
     ["config", "user.email", "satomi@example.invalid"], ["add", "."], ["commit", "-m", "initial"],
   ]) await runCommand("git", args, { cwd: repository });
+  const remote = path.join(root, "remote.git");
+  await runCommand("git", ["init", "--bare", remote]);
+  await runCommand("git", ["remote", "add", "origin", remote], { cwd: repository });
+  await runCommand("git", ["push", "origin", "main"], { cwd: repository });
+  const hook = path.join(remote, "hooks/pre-receive");
+  await writeFile(hook, "#!/bin/sh\nexit 1\n");
+  await chmod(hook, 0o755);
   const settings = configSchema.parse(YAML.parse(await readFile("satomi.config.example.yml", "utf8")));
   settings.site.repository_path = repository;
   settings.destinations = { jekyll: true, org_social: true, mastodon: true, bluesky: false, x: false, telegram: false };
@@ -59,9 +66,7 @@ async function interruptedPublication() {
   const attempt = state.attempts!.A000001!;
   expect(attempt).toMatchObject({ status: "failed", phase: "push", retryable: false });
   expect(writes).toEqual([]);
-  const remote = path.join(root, "remote.git");
-  await runCommand("git", ["init", "--bare", remote]);
-  await runCommand("git", ["remote", "add", "origin", remote], { cwd: repository });
+  await rm(hook);
   return { config, state, attempt, writes, events, repository };
 }
 
