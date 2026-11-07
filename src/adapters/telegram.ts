@@ -1,5 +1,6 @@
 import { AmbiguousPublishError, SatomiError, ValidationError } from "../errors.js";
 import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
+import { linkedText } from "../text.js";
 
 interface TelegramWorkerCredentials {
   workerToken: string;
@@ -23,6 +24,7 @@ interface ValidationResult {
   channelType?: unknown;
   canPostMessages?: unknown;
   supportsReplies?: unknown;
+  supportsTextLinks?: unknown;
 }
 
 interface PublishResult {
@@ -129,6 +131,7 @@ export async function validateTelegramWorker(
   config: ResolvedConfig,
   credentials: TelegramWorkerCredentials,
   requireReplies = false,
+  requireTextLinks = false,
 ): Promise<void> {
   const result = await callWorker<ValidationResult>("/validate", config, credentials);
   if (result.channelType !== "channel" || result.canPostMessages !== true) {
@@ -139,6 +142,9 @@ export async function validateTelegramWorker(
   if (requireReplies && result.supportsReplies !== true) {
     throw new ValidationError("Update the Telegram Worker before publishing threads: reply support is missing.");
   }
+  if (requireTextLinks && result.supportsTextLinks !== true) {
+    throw new ValidationError("Update the Telegram Worker before publishing Markdown links: text link support is missing.");
+  }
 }
 
 export async function publishTelegram(
@@ -147,10 +153,14 @@ export async function publishTelegram(
   credentials: TelegramWorkerCredentials,
   reply?: ThreadReply,
 ): Promise<PlatformResult> {
+  const rendered = linkedText(entry.platformPayloads.telegram ?? entry.text);
   const body: Record<string, unknown> = {
     slug: entry.slug,
-    text: entry.platformPayloads.telegram ?? entry.text,
+    text: rendered.text,
   };
+  if (rendered.links.length) body.entities = rendered.links.map(link => ({
+    type: "text_link", offset: link.start, length: link.end - link.start, url: link.url,
+  }));
   if (reply) body.replyToMessageId = Number(reply.parent.id);
   if (entry.media) {
     body.media = {

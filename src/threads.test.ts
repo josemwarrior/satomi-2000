@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildPlatformThread, countPlatformText, platformChunkFits, splitThread } from "./threads.js";
 import type { PlatformName, ResolvedConfig } from "./types.js";
+import { linkedText } from "./text.js";
 
 const config = {
   platforms: {
@@ -19,6 +20,60 @@ function words(parts: string[]): string[] {
 const split = (text: string, limit: number) => splitThread(text, (part) => part.length <= limit, "test");
 
 describe("word-boundary threads", () => {
+  it.each(["x", "bluesky", "mastodon", "telegram"] as PlatformName[])(
+    "forces ## boundaries on %s even below its limit, without empty posts", platform => {
+      expect(buildPlatformThread(platform, "## First ## ## Second ##", config)).toEqual(["First...", "...Second"]);
+    },
+  );
+
+  it("combines manual breaks and automatic cuts with a smaller first media caption", () => {
+    const parts = buildPlatformThread("telegram", `${"word ".repeat(260)}## Last`, config, "png");
+    expect(parts).toHaveLength(3);
+    expect(parts[0]!.length).toBeLessThanOrEqual(1024);
+    expect(parts.at(-1)).toBe("...Last");
+    expect(parts.every((part, i) => platformChunkFits("telegram", part, config, i === 0 ? "png" : undefined))).toBe(true);
+  });
+
+  it("counts native link labels and fallback URLs, keeping each link whole", () => {
+    const link = `[A labelled link](https://example.com/${"long".repeat(100)})`;
+    expect(countPlatformText("bluesky", link)).toBe(15);
+    expect(countPlatformText("telegram", link)).toBe(15);
+    expect(countPlatformText("x", link)).toBe(47);
+    expect(countPlatformText("mastodon", link)).toBe(47);
+    const small = { platforms: { ...config.platforms, bluesky: { max_characters: 24 } } } as ResolvedConfig;
+    const parts = buildPlatformThread("bluesky", `hello there ${link}! goodbye`, small);
+    expect(parts.filter(part => part.includes("https://"))).toHaveLength(1);
+    expect(parts.some(part => part.includes(`${link}!`))).toBe(true);
+    expect(parts.every(part => platformChunkFits("bluesky", part, small))).toBe(true);
+    expect(parts.map(part => linkedText(part).links.length).reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  it("reports a link whose label cannot fit with continuation dots", () => {
+    const small = { platforms: { ...config.platforms, bluesky: { max_characters: 12 } } } as ResolvedConfig;
+    expect(() => buildPlatformThread("bluesky", "[A long link label](https://example.com) ## Next", small)).toThrow(/word or URL/);
+  });
+
+  it.each(["mastodon", "x"] as const)("keeps global reference numbers and a single footer in %s threads", platform => {
+    const source = `Antes [Defold](https://defold.com) ${"word ".repeat(20)}## Después [God of War](https://example.org/god-of-war) y [Defold otra vez](https://defold.com).`;
+    const small = { platforms: { ...config.platforms, [platform]: { max_characters: 65 } } } as ResolvedConfig;
+    const parts = buildPlatformThread(platform, source, small);
+    expect(parts.length).toBeGreaterThan(2);
+    expect(parts.every(part => platformChunkFits(platform, part, small))).toBe(true);
+    const joined = parts.join("\n");
+    expect(joined).toContain("Defold [0]");
+    expect(joined).toContain("War [1]");
+    expect(joined).toContain("vez [0].");
+    expect(joined.match(/\[0\]https:\/\/defold.com/g)).toHaveLength(1);
+    expect(joined.match(/\[1\]https:\/\/example.org\/god-of-war/g)).toHaveLength(1);
+    expect(joined.indexOf("[0]https:")).toBeGreaterThan(joined.indexOf("vez [0]."));
+    expect(parts.every(part => !/^\.\.\.\[\d+\](?!https?:)/u.test(part))).toBe(true);
+    expect(joined).not.toContain("##");
+  });
+
+  it("counts the reference list at the configured Mastodon URL weight", () => {
+    expect(countPlatformText("mastodon", "[One](https://example.com) [Two](https://example.org)", 30)).toBe(84);
+  });
+
   it("preserves a post that fits exactly without markers", () => {
     expect(split("a bb c", 6)).toEqual(["a bb c"]);
     expect(split("", 5)).toEqual([""]);

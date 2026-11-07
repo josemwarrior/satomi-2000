@@ -178,13 +178,13 @@ describe("Org Social text links", () => {
       "[[https://example.com][Example]]",
       "[[https://example.org]]",
       "[[org-social:https://example.org/social.org][Alice]]",
-      "[Example](https://example.com)",
       "`https://example.com/code`",
       "```\nhttps://example.com/code\n```",
       "#+begin_src text\nhttps://example.com/code\n#+end_src",
     ].join("\n");
-    const social = renderSocialOrg([{ ...entry, text: `${protectedText}\nhttps://example.com/new` }], config);
+    const social = renderSocialOrg([{ ...entry, text: `${protectedText}\n[Example](https://example.com)\nhttps://example.com/new` }], config);
     expect(social).toContain(protectedText);
+    expect(social).toContain("[[https://example.com][Example]]");
     expect(social).toContain("[[https://example.com/new][https://example.com/new]]");
   });
 
@@ -192,5 +192,15 @@ describe("Org Social text links", () => {
     const orgSocialText = "See https://example.com plus [[https://example.org][Example]]";
     const social = renderSocialOrg([{ ...entry, orgSocialText }], config);
     expect(social).toContain(orgSocialText);
+  });
+
+  it("renders native links and removes thread markers in each complete artifact", () => {
+    const linked = { ...entry, text: "Mira [Defold](https://defold.com/?a=1&b=2) ## Otro párrafo." };
+    expect(renderPost(linked, config)).toContain("Mira [Defold](https://defold.com/?a=1&b=2)\n\nOtro párrafo.");
+    expect(renderSocialOrg([linked], config)).toContain("Mira [[https://defold.com/?a=1&b=2][Defold]]\n\nOtro párrafo.");
+    expect(renderRss([linked], config)).toContain('&lt;a href=&quot;https://defold.com/?a=1&amp;amp;b=2&quot;&gt;Defold&lt;/a&gt;');
+    const item = JSON.parse(renderJsonFeed([linked], config)).items[0];
+    expect(item.content_text).toBe("Mira Defold (https://defold.com/?a=1&b=2)\n\nOtro párrafo.");
+    expect(item.content_html).toContain('<a href="https://defold.com/?a=1&amp;b=2">Defold</a>');
   });
 });

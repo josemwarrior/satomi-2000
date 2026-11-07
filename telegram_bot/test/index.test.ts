@@ -118,6 +118,7 @@ describe("satomi Telegram Worker", () => {
         channelType: "channel",
         canPostMessages: true,
         supportsReplies: true,
+        supportsTextLinks: true,
       },
     });
     expect(telegramFetch).toHaveBeenCalledTimes(3);
@@ -167,6 +168,33 @@ describe("satomi Telegram Worker", () => {
       chat_id: "@satomi_test_channel",
       text: "Hello channel",
     });
+  });
+
+  it.each([false, true])("forwards native link entities, with media: %s", async withMedia => {
+    telegramFetch.mockResolvedValueOnce(telegramResponse({ message_id: 18, chat: { id: -100123456, type: "channel" } }));
+    const entities = [{ type: "text_link", offset: "👩🏽‍💻 ".length, length: 6, url: "https://defold.com" }];
+    const response = await worker.fetch(authorizedPost("/publish", {
+      slug: "links", text: "👩🏽‍💻 Defold", entities,
+      ...(withMedia ? { media: { type: "png", url: "https://example.com/image.png" } } : {}),
+    }), env);
+    expect(response.status).toBe(200);
+    const parameters = JSON.parse(String(telegramFetch.mock.calls[0]![1]!.body));
+    expect(parameters[withMedia ? "caption_entities" : "entities"]).toEqual(entities);
+    expect(parameters[withMedia ? "caption" : "text"]).toBe("👩🏽‍💻 Defold");
+    expect(parameters.parse_mode).toBeUndefined();
+  });
+
+  it.each([
+    [{ type: "text_link", offset: 0, length: 1, url: "javascript:alert(1)" }],
+    [{ type: "text_link", offset: 1, length: 1, url: "https://example.com" }],
+    [{ type: "text_link", offset: -1, length: 1, url: "https://example.com" }],
+    [{ type: "text_link", offset: 0, length: 100, url: "https://example.com" }],
+    [{ type: "text_link", offset: 0, length: 0, url: "https://example.com" }],
+    [{ type: "text_link", offset: 0, length: 3, url: "https://example.com" }, { type: "text_link", offset: 2, length: 3, url: "https://example.org" }],
+  ])("rejects invalid or overlapping link ranges before sending", async (...entities) => {
+    const response = await worker.fetch(authorizedPost("/publish", { slug: "links", text: "👩 Label", entities }), env);
+    expect(response.status).toBe(400);
+    expect(telegramFetch).not.toHaveBeenCalled();
   });
 
   it.each([

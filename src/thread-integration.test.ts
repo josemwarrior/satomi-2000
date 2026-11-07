@@ -15,7 +15,7 @@ afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-it("publishes a long canonical post, saves a partial thread and resumes its original cuts", async () => {
+it.each([false, true])("publishes a long canonical post and resumes its original cuts, with Markdown and ##: %s", async withLinks => {
   root = await mkdtemp(path.join(os.tmpdir(), "satomi-thread-integration-"));
   const repository = path.join(root, "blog");
   await mkdir(repository);
@@ -51,7 +51,8 @@ it("publishes a long canonical post, saves a partial thread and resumes its orig
     if (writes.length === 2) return new Response(JSON.stringify({ error: "rate limited" }), { status: 429 });
     return new Response(JSON.stringify({ id: String(writes.length), url: `https://mastodon.example.com/${writes.length}` }));
   }));
-  const text = "A complete sentence with several words. ".repeat(8).trim();
+  const prose = "A complete sentence with several words. ".repeat(8).trim();
+  const text = withLinks ? `Mira [Defold](https://defold.com) ## ${prose}` : prose;
   const summary = await publish(async () => ({ text }), config);
   expect(summary.platforms.mastodon).toMatchObject({ status: "failed", id: "1" });
   const saved = (await loadState(config)).entries[summary.slug]!;
@@ -59,7 +60,14 @@ it("publishes a long canonical post, saves a partial thread and resumes its orig
   expect(cuts.length).toBeGreaterThan(2);
   expect(saved.platforms.mastodon.chunks!.map((part) => part.status).slice(0, 3)).toEqual(["published", "failed", "not_started"]);
   const org = await readFile(path.join(repository, "microblog/social.org"), "utf8");
-  expect(org).toContain(text);
+  expect(org).toContain(prose);
+  if (withLinks) {
+    expect(org).toContain("Mira [[https://defold.com][Defold]]\n\n");
+    expect(cuts[0]).toBe("Mira Defold [0]...");
+    expect(writes[0]!.status).toBe("Mira Defold [0]...");
+    expect(cuts.join("\n").match(/\[0\]https:\/\/defold.com/g)).toHaveLength(1);
+    expect(cuts.every(part => !part.includes("##"))).toBe(true);
+  }
   expect(org.match(/^\*\* /gm)).toHaveLength(1);
 
   // A larger limit must not repartition a partially published thread.

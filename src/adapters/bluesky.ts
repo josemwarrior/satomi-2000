@@ -4,6 +4,7 @@ import { SatomiError } from "../errors.js";
 import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
 import { sleep } from "../utils.js";
 import { responseJson } from "./http.js";
+import { linkedText } from "../text.js";
 
 interface BlueskyCredentials {
   handle: string;
@@ -89,8 +90,22 @@ export async function publishBluesky(
     };
   }
 
-  const richText = new RichText({ text: entry.platformPayloads.bluesky ?? entry.text });
+  const rendered = linkedText(entry.platformPayloads.bluesky ?? entry.text);
+  const richText = new RichText({ text: rendered.text });
   await richText.detectFacets(agent);
+  const encoder = new TextEncoder();
+  const explicitFacets = rendered.links.map(link => ({
+    index: {
+      byteStart: encoder.encode(rendered.text.slice(0, link.start)).byteLength,
+      byteEnd: encoder.encode(rendered.text.slice(0, link.end)).byteLength,
+    },
+    features: [{ $type: "app.bsky.richtext.facet#link" as const, uri: link.url }],
+  }));
+  richText.facets = [
+    ...(richText.facets ?? []).filter(facet => !explicitFacets.some(link =>
+      facet.index.byteStart < link.index.byteEnd && facet.index.byteEnd > link.index.byteStart)),
+    ...explicitFacets,
+  ].sort((left, right) => left.index.byteStart - right.index.byteStart);
   const record: Record<string, unknown> = {
     $type: "app.bsky.feed.post",
     text: richText.text,
@@ -126,13 +141,15 @@ export async function publishBluesky(
       });
       const value = existing.data.value as {
         text?: unknown;
+        facets?: unknown;
         reply?: { root?: { uri?: string; cid?: string }; parent?: { uri?: string; cid?: string } };
       };
       const sameReply = reply
         ? value.reply?.root?.uri === reply.root.uri && value.reply?.root?.cid === reply.root.cid &&
           value.reply?.parent?.uri === reply.parent.uri && value.reply?.parent?.cid === reply.parent.cid
         : value.reply === undefined;
-      if (value.text !== richText.text || !sameReply || !existing.data.cid || !existing.data.uri) {
+      const sameLinks = explicitFacets.length === 0 || JSON.stringify(value.facets) === JSON.stringify(richText.facets);
+      if (value.text !== richText.text || !sameLinks || !sameReply || !existing.data.cid || !existing.data.uri) {
         throw createError;
       }
       const result: PlatformResult = {

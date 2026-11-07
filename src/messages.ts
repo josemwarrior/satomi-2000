@@ -4,6 +4,7 @@ import { ValidationError } from "./errors.js";
 import { inspectImage, inspectRemoteImage, isRemoteImage } from "./image.js";
 import { inspectRemoteVideo } from "./video.js";
 import { buildPlatformThread } from "./threads.js";
+import { completeMarkdown, linkedText } from "./text.js";
 export { countPlatformText } from "./threads.js";
 import type {
   DraftInput,
@@ -66,6 +67,7 @@ export function effectiveLimits(config: ResolvedConfig, mediaType?: MediaType): 
 }
 
 function deriveTitle(text: string): string {
+  text = linkedText(completeMarkdown(text)).text;
   const firstLine = text.split(/\r?\n/, 1)[0]?.trim() || "Microblog update";
   const sentence = firstLine.split(/(?<=[.!?])\s/u, 1)[0] ?? firstLine;
   return truncateGraphemes(sentence, 72).trim();
@@ -83,7 +85,7 @@ export async function prepareEntry(
   }
   if (
     config.validation.reject_empty_text &&
-    text.length === 0 &&
+    completeMarkdown(text).length === 0 &&
     !input.imagePath &&
     !input.videoUrl
   ) {

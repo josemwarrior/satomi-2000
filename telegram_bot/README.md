@@ -45,6 +45,15 @@ the parent is missing. Text is limited to 4096 Unicode code points, or 1024
 when attached to media. Satomi splits the draft and persists progress on the
 client, making one request per part and attaching media only to the first.
 
+Markdown links are converted by the CLI into plain `text` plus an optional
+`entities` array of `{ "type": "text_link", "offset": 0, "length": 6, "url": "https://defold.com" }`.
+Offsets and lengths use UTF-16 code units, as required by Telegram, and refer
+to the exact supplied text. The Worker validates the ranges and HTTP(S) URLs,
+then forwards `entities` for text messages or `caption_entities` for media.
+It does not enable a Markdown/HTML parse mode. `/validate` advertises
+`supportsTextLinks: true`; deploy this version before publishing Markdown links
+from the CLI. Older plain-text clients remain compatible.
+
 ```json
 {
   "slug": "thread-continuation",

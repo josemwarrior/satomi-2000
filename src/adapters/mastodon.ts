@@ -3,6 +3,7 @@ import { AmbiguousPublishError, SatomiError, ValidationError } from "../errors.j
 import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
 import { sleep } from "../utils.js";
 import { buildPlatformThread, platformChunkFits } from "../threads.js";
+import { referencedText } from "../text.js";
 import { authorization, responseJson } from "./http.js";
 
 interface MastodonCredentials {
@@ -126,7 +127,7 @@ export async function publishMastodon(
   }
 
   const body: Record<string, unknown> = {
-    status: entry.platformPayloads.mastodon,
+    status: referencedText(entry.platformPayloads.mastodon ?? entry.text),
     language: entry.language,
   };
   if (mediaId) body.media_ids = [mediaId];

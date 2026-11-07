@@ -1,6 +1,8 @@
 import { graphemeCount } from "./graphemes.js";
 import { buildPlatformThread, countPlatformText } from "./threads.js";
 import type { PlatformName, ResolvedConfig } from "./types.js";
+import twitterText from "twitter-text";
+import { completeMarkdown, linkedText, referencedText } from "./text.js";
 
 type Destination = PlatformName | "org_social" | "jekyll";
 const labels: Record<Destination, string> = {
@@ -48,6 +50,28 @@ function emptyState(title: string, description: string, error = false): void {
   cards.append(box);
 }
 
+function postBody(body: HTMLElement, source: string): void {
+  const fallback = active === "mastodon" || active === "x";
+  const rendered = fallback ? { text: referencedText(source), links: [] } : linkedText(source);
+  const links = fallback ? [] : [...rendered.links];
+  for (const { url, indices: [start, end] } of twitterText.extractUrlsWithIndices(rendered.text, { extractUrlsWithoutProtocol: false })) {
+    if (!links.some(link => start < link.end && end > link.start)) links.push({ start, end, url });
+  }
+  links.sort((left, right) => left.start - right.start);
+  let offset = 0;
+  for (const link of links) {
+    body.append(document.createTextNode(rendered.text.slice(offset, link.start)));
+    const anchor = document.createElement("a");
+    anchor.href = link.url;
+    anchor.textContent = rendered.text.slice(link.start, link.end);
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    body.append(anchor);
+    offset = link.end;
+  }
+  body.append(document.createTextNode(rendered.text.slice(offset)));
+}
+
 function render(): void {
   if (timer !== undefined) clearTimeout(timer);
   const text = input.value.trim();
@@ -74,7 +98,7 @@ function render(): void {
     parts = isPlatform(active)
       ? buildPlatformThread(active, text, config, active === "telegram" && mediaInput.checked ? "png" : undefined,
         undefined, reservedUrlLength)
-      : [text];
+      : [completeMarkdown(text)];
   } catch {
     status.textContent = "Este texto necesita un ajuste";
     emptyState("Una palabra o un enlace no cabe", "No se cortan palabras. Acorta esa palabra o enlace, aumenta el límite cuando la red lo permita, o cambia de pestaña. Los puntos de continuación también ocupan espacio.", true);
@@ -91,16 +115,16 @@ function render(): void {
     position.className = "post-position";
     position.textContent = `POST ${String(index + 1).padStart(2, "0")}`;
     const count = document.createElement("span");
-    const used = isPlatform(active) ? countPlatformText(active, part, reservedUrlLength) : graphemeCount(part);
+    const used = isPlatform(active) ? countPlatformText(active, part, reservedUrlLength) : graphemeCount(linkedText(part).text);
     let maximum = isPlatform(active) ? Math.min(limits[active], nativeLimits[active]) : Infinity;
     if (active === "telegram" && mediaInput.checked && index === 0) maximum = Math.min(maximum, 1024);
     count.textContent = Number.isFinite(maximum) ? `${used} / ${maximum}` : `${used.toLocaleString("es")} caracteres · sin límite`;
-    if (active === "bluesky") count.title = `${new TextEncoder().encode(part).byteLength} / 3000 bytes UTF-8`;
+    if (active === "bluesky") count.title = `${new TextEncoder().encode(linkedText(part).text).byteLength} / 3000 bytes UTF-8`;
     header.append(position, count);
     const body = document.createElement("p");
     body.className = "post-text";
-    // User input is always plain text, including strings that look like HTML.
-    body.textContent = part;
+    // Build text and safe HTTP(S) anchors with DOM APIs; never inject user HTML.
+    postBody(body, part);
     card.append(header, body);
     if (active === "telegram" && mediaInput.checked && index === 0) {
       const attachment = document.createElement("div");
@@ -130,12 +154,12 @@ function select(destination: Destination): void {
     else limitInput.removeAttribute("max");
   }
   const descriptions: Record<Destination, string> = {
-    mastodon: "El límite depende de tu instancia. Los enlaces tienen su propio cómputo.",
-    bluesky: "Hasta 300 caracteres visuales y 3000 bytes por publicación.",
-    x: "Hasta 280 caracteres ponderados. Los enlaces y los emojis cuentan de forma especial.",
-    telegram: "Hasta 4096 caracteres; con multimedia, el primer fragmento admite 1024.",
-    org_social: "Tu texto completo en una sola publicación, como en Satomi.",
-    jekyll: "La entrada del blog conserva todo el texto, sin dividirlo.",
+    mastodon: "Límite según tu instancia. Enlaces con referencias [0], [1] y URLs al final del hilo. ## fuerza otro post.",
+    bluesky: "Enlaces sobre el texto. Hasta 300 caracteres visuales y 3000 bytes. ## fuerza otro post.",
+    x: "Hasta 280 caracteres ponderados. Referencias [0], [1] y URLs al final del hilo. ## fuerza otro post.",
+    telegram: "Enlaces sobre el texto. Hasta 4096 caracteres; con multimedia, 1024 en el primer post. ## fuerza otro post.",
+    org_social: "Un solo post con enlaces nativos de Org. ## se convierte en una separación de párrafos.",
+    jekyll: "Una entrada completa con enlaces Markdown. ## se convierte en una separación de párrafos.",
   };
   element("network-description").textContent = descriptions[destination];
   render();
@@ -165,15 +189,15 @@ tabs.forEach((tab, index) => {
   });
 });
 element("example").addEventListener("click", () => {
-  input.value = `Hay ideas que necesitan un poco más de espacio. Una frase se convierte en un párrafo, un párrafo lleva a otro y, cuando te das cuenta, lo que querías contar ya no cabe en una sola publicación.
+  input.value = `No minusvalores aquello que te inspira. [Defold es tan liviano y crea compilados tan óptimos](https://defold.com/2020/05/31/The-Defold-engine-code-style/) simplemente porque sus creadores se sintieron inspirados al ver como [los ingenieros de God of War crearon un ejecutable de 1,5 MB](https://www.gamedeveloper.com/design/gdc-i-god-of-war-i-how-the-left-and-right-brain-learned-to-love-one-another)
 
-Hoy estoy probando una forma más sencilla de compartir esas ideas: escribir el texto completo y dejar que cada red encuentre su propio ritmo. Las palabras se mantienen enteras y los puntos suspensivos conectan cada fragmento con el siguiente. No hace falta contar caracteres mientras escribo.
+##
 
-Lo interesante es que el mismo texto puede ocupar tres publicaciones en una red, cuatro en otra y una sola en el blog. El contenido es el mismo; lo que cambia es el espacio disponible para contarlo.
+La inspiración también puede marcar el ritmo de un hilo. Con dos almohadillas indico dónde empieza la siguiente publicación, aunque todavía quede espacio en la anterior. Si una sección es demasiado larga, Satomi la sigue dividiendo entre palabras y conserva cada enlace completo.
 
-También hay pequeños detalles que importan. Un emoji como 👩🏽‍💻 no cuenta igual en todas partes. Y un enlace largo, por ejemplo https://example.com/una-historia-con-mucho-que-contar, puede tener un peso distinto al que parece. Por eso esta vista previa utiliza el cálculo de cada red.
+##
 
-Al final, lo que quiero es concentrarme en la historia. Escribir con calma, revisar los cortes y comprobar que la última palabra llega a su destino. El texto completo seguirá en Jekyll y Org Social; en las demás redes, las respuestas irán construyendo el hilo.`;
+Un emoji como 👩🏽‍💻 no cuenta igual en todas partes. Cambia de pestaña para comparar los enlaces y los límites de cada red. Jekyll y Org Social conservarán el texto completo en una sola entrada, con párrafos donde aparecen las dos almohadillas.`;
   render();
 });
 

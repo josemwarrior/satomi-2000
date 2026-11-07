@@ -45,11 +45,38 @@ satomi post -t "Extra update" --force-x
 
 Need another option? Run `satomi --help`.
 
-Bare `https://` and `http://` links in post text become explicit `[[URL][URL]]` text links in `social.org`. Existing links and code are preserved. An explicit `org_social_text` override is used unchanged.
+## Links and manual thread breaks
+
+Write links as `[label](https://example.com)`. Satomi also accepts the nested, escaped form pasted by some editors, such as `[label]\([https://example.com](https://example.com))`.
+
+Jekyll keeps valid Markdown links; RSS and JSON Feed include HTML links. Org Social uses `[[URL][label]]`. Bluesky publishes native [link facets](https://docs.bsky.app/docs/advanced-guides/post-richtext), and Telegram uses [text-link entities](https://core.telegram.org/bots/api#messageentity), including media captions. Mastodon and X use numbered references, starting at `[0]`, with one URL list at the end of the complete thread:
+
+```text
+See Defold [0] and God of War [1].
+
+[0]https://defold.com/2020/05/31/The-Defold-engine-code-style/
+[1]https://www.gamedeveloper.com/design/gdc-i-god-of-war-i-how-the-left-and-right-brain-learned-to-love-one-another
+```
+
+References follow the first occurrence of each distinct URL; repeated URLs reuse their number, including across `##` breaks. Satomi counts the labels, reference markers and URL list before splitting. Each reference marker stays with its preceding word, and each URL-list entry stays whole. The list can continue into the final posts when it does not fit earlier. Bluesky and Telegram keep each native labelled link whole; a word or link that cannot fit produces a validation error.
+
+Bare HTTP(S) links in post text become explicit `[[URL][URL]]` links in `social.org`. Existing Org links and code are preserved. An explicit `org_social_text` override is used unchanged. Only HTTP(S) Markdown destinations without credentials are converted; other schemes and malformed links remain literal text.
+
+Use `##` on its own line, or surrounded by spaces, to start a new post on Mastodon, Bluesky, X and Telegram even when the preceding section is below the character limit:
+
+```text
+No minusvalores aquello que te inspira. [Defold](https://defold.com/2020/05/31/The-Defold-engine-code-style/) es un buen ejemplo.
+##
+Aquí empieza otra publicación del hilo.
+```
+
+Each section can still be divided automatically if necessary, using the same continuation dots and first-post media rules. Leading, trailing and repeated separators do not create empty posts. `##` inside code, links or URLs is preserved; use `\##` for a literal marker in prose. Jekyll, RSS, JSON Feed and Org Social keep one complete entry, replacing separators with paragraph breaks.
+
+Update the Telegram Worker from `telegram_bot/` to use native Markdown links. Preflight requires `supportsTextLinks: true` for posts containing them, so an older Worker is detected before publication. Plain-text posts continue to work with older Workers.
 
 ## Long posts and automatic threads
 
-Open `preview.html` from the repository root directly in your browser to try the splitter. Write plain text on the left and switch network tabs to inspect the read-only parts on the right. Everything runs locally, with no server or Internet connection. Per-post limits are adjustable; Telegram also lets you preview a first part with media. The HTML bundles the same `src/threads.ts` implementation used by the CLI, including X's weighted counting. `npm run build` refreshes it automatically; `npm run build:preview` refreshes just this tool.
+Open `preview.html` from the repository root directly in your browser to try the splitter. Write text with Markdown links and optional `##` breaks on the left and switch network tabs to inspect the read-only parts on the right. The example includes the Defold / God of War links and manual breaks. Links are clickable in the preview, with the same native or fallback representation as each destination. Everything runs locally, with no server or Internet connection. Per-post limits are adjustable; Telegram also lets you preview a first part with media. The HTML bundles the same `src/threads.ts` implementation used by the CLI, including X's weighted counting. `npm run build` refreshes it automatically; `npm run build:preview` refreshes just this tool.
 
 There is no limit on the complete draft's length. Jekyll, RSS, JSON Feed and Org Social keep the complete post. Satomi independently divides each social payload (including its configured tags and canonical URL) into as many posts as needed.
 

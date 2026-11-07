@@ -1,6 +1,7 @@
 import matter from "gray-matter";
 import twitterText from "twitter-text";
 import type { EntryState, PreparedEntry, PublicationState, ResolvedConfig } from "./types.js";
+import { completeMarkdown, htmlText, linkedText, tokenizeText } from "./text.js";
 
 export interface ContentEntry {
   slug: string;
@@ -99,7 +100,7 @@ export function renderPost(entry: ContentEntry, config: ResolvedConfig): string 
     frontMatter.video_bytes = entry.videoBytes;
   }
   if (entry.alt) frontMatter.alt = entry.alt;
-  return matter.stringify(`${entry.text.trim()}\n`, frontMatter);
+  return matter.stringify(`${completeMarkdown(entry.text)}\n`, frontMatter);
 }
 
 function orgTimestamp(isoDate: string): string {
@@ -108,6 +109,9 @@ function orgTimestamp(isoDate: string): string {
 
 // Only linkify ordinary prose; preserve explicit links and literal code.
 function orgTextLinks(text: string): string {
+  text = tokenizeText(completeMarkdown(text)).map(token => token.kind === "link"
+    ? `[[${token.url.replace(/\]/g, "%5D")}][${token.label.replace(/\]/g, "\\]")}]]`
+    : token.source).join("");
   const protectedRanges = [...text.matchAll(
     /\[\[[^\n]*?\]\]|!?\[[^\]\n]*\]\([^\n]*?\)|`+[^`]*`+|^#\+begin_(src|example)\b[^\n]*\n[\s\S]*?^#\+end_\1\b[^\n]*/gim,
   )].map(match => [match.index, match.index + match[0].length] as const);
@@ -174,7 +178,7 @@ export function renderRss(entries: ContentEntry[], config: ResolvedConfig): stri
       const video = entry.video
         ? `<p><video controls preload="metadata"${entry.videoWidth ? ` width="${entry.videoWidth}"` : ""}${entry.videoHeight ? ` height="${entry.videoHeight}"` : ""}><source src="${xml(entry.video)}" type="video/mp4"><a href="${xml(entry.video)}">View video</a></video></p>`
         : "";
-      const description = `<p>${xml(entry.text)}</p>${image}${video}`;
+      const description = `<p>${htmlText(entry.text)}</p>${image}${video}`;
       return [
         "    <item>",
         `      <title>${xml(entry.title)}</title>`,
@@ -215,11 +219,12 @@ export function renderJsonFeed(entries: ContentEntry[], config: ResolvedConfig):
           id: url,
           url,
           title: entry.title,
-          content_text: entry.text,
+          content_text: linkedText(completeMarkdown(entry.text), true).text,
           date_published: entry.date,
           tags: entry.tags,
           language: entry.language,
         };
+        if (linkedText(entry.text).links.length) item.content_html = `<p>${htmlText(entry.text)}</p>`;
         if (entry.image) item.image = absoluteUrl(config, entry.image);
         if (entry.video) {
           item.attachments = [

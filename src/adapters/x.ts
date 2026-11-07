@@ -3,6 +3,7 @@ import { AmbiguousPublishError, SatomiError } from "../errors.js";
 import type { PlatformResult, PreparedEntry, ResolvedConfig, ThreadReply } from "../types.js";
 import { sleep } from "../utils.js";
 import { authorization, responseJson } from "./http.js";
+import { referencedText } from "../text.js";
 
 interface XCredentials {
   accessToken: string;
@@ -148,7 +149,7 @@ export async function publishX(
 ): Promise<PlatformResult> {
   const mediaId = entry.media ? await uploadMedia(entry, credentials.accessToken) : undefined;
   const body: Record<string, unknown> = {};
-  const text = entry.platformPayloads.x ?? entry.text;
+  const text = referencedText(entry.platformPayloads.x ?? entry.text);
   if (text || !mediaId) body.text = text;
   if (mediaId) body.media = { media_ids: [mediaId] };
   if (reply) body.reply = { in_reply_to_tweet_id: reply.parent.id };

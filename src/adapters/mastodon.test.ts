@@ -41,6 +41,13 @@ function instanceResponse(supportedMimeTypes: string[]): Response {
 }
 
 describe("Mastodon instance media capabilities", () => {
+  it("publishes Markdown labels with numbered references and a URL list", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "1", url: "https://m.example/1" })));
+    vi.stubGlobal("fetch", fetchMock);
+    await publishMastodon({ slug: "links", platformPayloads: { mastodon: "Mira [Defold](https://defold.com)." } } as PreparedEntry, credentials);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)).status).toBe("Mira Defold [0].\n\n[0]https://defold.com");
+  });
+
   it("rebuilds the thread using the instance limit and preserves saved cuts on retry", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       configuration: { statuses: { max_characters: 80, characters_reserved_per_url: 23 } },

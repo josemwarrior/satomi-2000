@@ -9,11 +9,19 @@ type MediaType = "gif" | "png" | "jpeg" | "webp" | "mp4";
 interface PublishRequest {
   slug: string;
   text: string;
+  entities?: TextLinkEntity[];
   replyToMessageId?: number;
   media?: {
     url: string;
     type: MediaType;
   };
+}
+
+interface TextLinkEntity {
+  type: "text_link";
+  offset: number;
+  length: number;
+  url: string;
 }
 
 interface TelegramEnvelope<T> {
@@ -171,7 +179,7 @@ function parsePublishRequest(value: unknown): PublishRequest {
       "The request body must be a JSON object.",
     );
   }
-  assertOnlyKeys(value, ["slug", "text", "media", "replyToMessageId"], "request body");
+  assertOnlyKeys(value, ["slug", "text", "media", "replyToMessageId", "entities"], "request body");
   if (value.replyToMessageId !== undefined &&
     (typeof value.replyToMessageId !== "number" || !Number.isSafeInteger(value.replyToMessageId) || value.replyToMessageId <= 0)) {
     throw new HttpError(400, "invalid_request", "replyToMessageId must be a positive integer.");
@@ -190,9 +198,11 @@ function parsePublishRequest(value: unknown): PublishRequest {
   if (typeof value.text !== "string") {
     throw new HttpError(400, "invalid_request", "text must be a string.");
   }
-  const text = value.text.trim();
+  // Entity offsets refer to the original UTF-16 string, so keep its spacing.
+  const text = value.entities === undefined ? value.text.trim() : value.text;
+  const entities = value.entities === undefined ? undefined : parseTextLinks(value.entities, text);
   const media = value.media === undefined ? undefined : parseMedia(value.media);
-  if (!text && !media) {
+  if (!text.trim() && !media) {
     throw new HttpError(400, "invalid_request", "text cannot be empty without media.");
   }
   if (CONTROL_CHARACTERS.test(text)) {
@@ -212,9 +222,36 @@ function parsePublishRequest(value: unknown): PublishRequest {
   }
   return {
     slug: value.slug, text,
+    ...(entities?.length ? { entities } : {}),
     ...(media ? { media } : {}),
     ...(value.replyToMessageId === undefined ? {} : { replyToMessageId: value.replyToMessageId as number }),
   };
+}
+
+function parseTextLinks(value: unknown, text: string): TextLinkEntity[] {
+  const invalid = () => new HttpError(400, "invalid_request", "entities must contain non-overlapping HTTP(S) text links with valid UTF-16 ranges.");
+  if (!Array.isArray(value)) throw invalid();
+  let previousEnd = 0;
+  return value.map(entity => {
+    if (!isRecord(entity)) throw invalid();
+    assertOnlyKeys(entity, ["type", "offset", "length", "url"], "entity");
+    if (entity.type !== "text_link" || typeof entity.offset !== "number" ||
+      typeof entity.length !== "number" || !Number.isSafeInteger(entity.offset) ||
+      !Number.isSafeInteger(entity.length) || entity.offset < previousEnd || entity.length <= 0 ||
+      entity.offset + entity.length > text.length || typeof entity.url !== "string" ||
+      /[\s<>\u0000-\u001f\u007f]/u.test(entity.url)) throw invalid();
+    const end = entity.offset + entity.length;
+    // A range must not split a surrogate pair in an emoji or another non-BMP character.
+    for (const index of [entity.offset, end]) {
+      const unit = text.charCodeAt(index);
+      if (unit >= 0xdc00 && unit <= 0xdfff) throw invalid();
+    }
+    let url: URL;
+    try { url = new URL(entity.url); } catch { throw invalid(); }
+    if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) throw invalid();
+    previousEnd = end;
+    return { type: "text_link", offset: entity.offset, length: entity.length, url: entity.url };
+  });
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -408,6 +445,7 @@ async function validateTelegram(env: Env): Promise<Response> {
       channelType: chat.type,
       canPostMessages: true,
       supportsReplies: true,
+      supportsTextLinks: true,
     },
   });
 }
@@ -457,6 +495,9 @@ async function publishTelegram(
     };
   }
   if (publication.media && publication.text) parameters.caption = publication.text;
+  if (publication.entities?.length) {
+    parameters[publication.media ? "caption_entities" : "entities"] = publication.entities;
+  }
   if (publication.replyToMessageId !== undefined) {
     parameters.reply_parameters = { message_id: publication.replyToMessageId };
   }

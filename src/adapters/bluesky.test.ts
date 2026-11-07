@@ -37,6 +37,29 @@ const storedReply = {
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe("Bluesky thread records", () => {
+  it("converts Markdown links to facets with UTF-8 byte offsets", async () => {
+    mocks.create.mockResolvedValue({ data: { uri: "at://new", cid: "cid-new" } });
+    await publishBluesky(entry("👩🏽‍💻 Mira [Defold](https://defold.com) y [más](https://example.org)."), undefined, config, credentials, "links");
+    const record = mocks.create.mock.calls[0]![0].record;
+    expect(record.text).toBe("👩🏽‍💻 Mira Defold y más.");
+    expect(record.facets).toContainEqual({
+      index: { byteStart: Buffer.byteLength("👩🏽‍💻 Mira "), byteEnd: Buffer.byteLength("👩🏽‍💻 Mira Defold") },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri: "https://defold.com" }],
+    });
+    expect(record.facets).toContainEqual({
+      index: { byteStart: Buffer.byteLength("👩🏽‍💻 Mira Defold y "), byteEnd: Buffer.byteLength("👩🏽‍💻 Mira Defold y más") },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri: "https://example.org" }],
+    });
+  });
+
+  it("does not recover an existing post with a different link target", async () => {
+    mocks.create.mockRejectedValue(new Error("record already exists"));
+    mocks.get.mockResolvedValue({ data: { uri: "at://existing", cid: "cid-existing", value: {
+      text: "Link", facets: [{ index: { byteStart: 0, byteEnd: 4 }, features: [{ $type: "app.bsky.richtext.facet#link", uri: "https://wrong.example" }] }],
+    } } });
+    await expect(publishBluesky(entry("[Link](https://example.com)"), undefined, config, credentials, "links")).rejects.toThrow("record already exists");
+  });
+
   it("sends both strong references and recalculates facets for each part using one session", async () => {
     mocks.create.mockResolvedValue({ data: { uri: "at://new", cid: "cid-new" } });
     const session: BlueskySession = {};

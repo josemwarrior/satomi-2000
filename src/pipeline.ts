@@ -25,6 +25,7 @@ import {
 import { convertGifToMp4 } from "./media.js";
 import { prepareEntry, xPayloadContainsUrl } from "./messages.js";
 import { platformChunkFits } from "./threads.js";
+import { linkedText } from "./text.js";
 import { publishThread } from "./thread-publisher.js";
 import {
   assertNotDuplicate,
@@ -168,7 +169,8 @@ async function preflight(
     await validateMastodonInstance(entry, config, credentials.mastodon, preserveChunks);
   }
   if (selected.includes("telegram") && credentials.telegram) {
-    await validateTelegramWorker(config, credentials.telegram, (entry.platformChunks?.telegram?.length ?? 1) > 1);
+    await validateTelegramWorker(config, credentials.telegram, (entry.platformChunks?.telegram?.length ?? 1) > 1,
+      linkedText(entry.platformPayloads.telegram ?? entry.text).links.length > 0);
   }
   return credentials;
 }

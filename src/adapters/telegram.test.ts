@@ -26,6 +26,24 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("Telegram Worker adapter", () => {
+  it("requires text-link capability for Markdown but permits older Workers for plain text", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ok: true, result: { channelType: "channel", canPostMessages: true } })));
+    await expect(validateTelegramWorker(config, credentials, false, true)).rejects.toThrow(/text link support is missing/);
+    await expect(validateTelegramWorker(config, credentials)).resolves.toBeUndefined();
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ok: true, result: { channelType: "channel", canPostMessages: true, supportsTextLinks: true } })));
+    await expect(validateTelegramWorker(config, credentials, false, true)).resolves.toBeUndefined();
+  });
+
+  it("sends link entities with UTF-16 offsets after emoji", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(json({ ok: true, result: { messageId: 43, url: "https://t.me/channel/43" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await publishTelegram({ slug: "links", platformPayloads: { telegram: "👩🏽‍💻 [Defold](https://defold.com)" } } as PreparedEntry, config, credentials);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({
+      slug: "links", text: "👩🏽‍💻 Defold",
+      entities: [{ type: "text_link", offset: "👩🏽‍💻 ".length, length: 6, url: "https://defold.com" }],
+    });
+  });
+
   it("requires a Worker with replies support before starting a thread", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({
       ok: true, result: { channelType: "channel", canPostMessages: true },

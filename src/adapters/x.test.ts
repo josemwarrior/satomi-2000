@@ -54,6 +54,13 @@ const config = { platforms: { x: { username: "satomi" } } } as ResolvedConfig;
 const credentials = { accessToken: "test-token" };
 
 describe("X media capabilities", () => {
+  it("publishes Markdown labels with numbered references and a URL list", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(json({ data: { id: "123" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await publishX({ platformPayloads: { x: "Mira [Defold](https://defold.com)." } } as PreparedEntry, config, credentials);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({ text: "Mira Defold [0].\n\n[0]https://defold.com" });
+  });
+
   it("sends continuation text as a reply to the preceding post", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(json({ data: { id: "124" } }));
     vi.stubGlobal("fetch", fetchMock);
